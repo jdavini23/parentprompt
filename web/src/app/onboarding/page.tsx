@@ -2,17 +2,16 @@
 
 import type React from "react"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useAuth } from "@/contexts/auth-context"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Navigation } from "@/components/navigation"
+import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { toast } from "@/hooks/use-toast"
 
 const interests = [
   { id: "reading", label: "Reading" },
@@ -30,11 +29,10 @@ const timeOptions = [
   { value: "evening", label: "Evening (7:00 PM)" },
 ]
 
-export default function ProfilePage() {
+export default function OnboardingPage() {
   const { user } = useAuth()
-  const [profile, setProfile] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const router = useRouter()
+  const [step, setStep] = useState(1)
   const [formData, setFormData] = useState({
     name: "",
     childName: "",
@@ -42,33 +40,8 @@ export default function ProfilePage() {
     interests: [] as string[],
     preferredTime: "morning",
   })
-
-  useEffect(() => {
-    const fetchProfile = async () => {
-      if (!user) return
-
-      try {
-        const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).single()
-
-        if (error) throw error
-
-        setProfile(data)
-        setFormData({
-          name: data.name,
-          childName: data.child_name,
-          childAge: data.child_age.toString(),
-          interests: data.interests,
-          preferredTime: data.preferred_time,
-        })
-      } catch (error) {
-        console.error("Error fetching profile:", error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchProfile()
-  }, [user])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleInterestChange = (id: string, checked: boolean) => {
     if (checked) {
@@ -86,64 +59,54 @@ export default function ProfilePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setSaving(true)
+    setIsLoading(true)
+    setError(null)
 
     try {
       if (!user) throw new Error("User not authenticated")
 
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          name: formData.name,
-          child_name: formData.childName,
-          child_age: Number.parseInt(formData.childAge),
-          interests: formData.interests,
-          preferred_time: formData.preferredTime,
-        })
-        .eq("id", user.id)
+      // Save profile data to Supabase
+      const { error } = await supabase.from("profiles").insert({
+        id: user.id,
+        name: formData.name,
+        child_name: formData.childName,
+        child_age: Number.parseInt(formData.childAge),
+        interests: formData.interests,
+        preferred_time: formData.preferredTime,
+      })
 
       if (error) throw error
 
-      toast({
-        title: "Profile updated",
-        description: "Your profile has been updated successfully.",
-      })
-    } catch (error) {
-      console.error("Error updating profile:", error)
-      toast({
-        title: "Error",
-        description: "There was an error updating your profile.",
-        variant: "destructive",
-      })
+      // Redirect to home page
+      router.push("/")
+    } catch (err) {
+      console.error(err)
+      setError("Error saving profile data")
     } finally {
-      setSaving(false)
+      setIsLoading(false)
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    )
+  const nextStep = () => {
+    setStep(step + 1)
+  }
+
+  const prevStep = () => {
+    setStep(step - 1)
   }
 
   return (
-    <div className="md:pl-64">
-      <Navigation />
-      <div className="container max-w-4xl py-8 md:py-12">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold">Profile Settings</h1>
-          <p className="text-muted-foreground">Update your profile and preferences</p>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Your Information</CardTitle>
-            <CardDescription>Update your personal information and preferences</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
+    <div className="container flex items-center justify-center min-h-screen py-12">
+      <Card className="w-full max-w-md">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-2xl font-bold text-center">Welcome to ParentPrompt</CardTitle>
+          <CardDescription className="text-center">
+            Let&apos;s set up your profile to personalize your experience
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {step === 1 && (
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Your Name</Label>
@@ -154,7 +117,14 @@ export default function ProfilePage() {
                     required
                   />
                 </div>
+                <Button type="button" onClick={nextStep} className="w-full">
+                  Next
+                </Button>
+              </div>
+            )}
 
+            {step === 2 && (
+              <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="childName">Child&apos;s Name</Label>
                   <Input
@@ -164,7 +134,6 @@ export default function ProfilePage() {
                     required
                   />
                 </div>
-
                 <div className="space-y-2">
                   <Label htmlFor="childAge">Child&apos;s Age (in years)</Label>
                   <Input
@@ -177,7 +146,19 @@ export default function ProfilePage() {
                     required
                   />
                 </div>
+                <div className="flex justify-between">
+                  <Button type="button" onClick={prevStep} variant="outline">
+                    Back
+                  </Button>
+                  <Button type="button" onClick={nextStep}>
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
 
+            {step === 3 && (
+              <div className="space-y-4">
                 <div className="space-y-2">
                   <Label>Interests (Select all that apply)</Label>
                   <div className="grid grid-cols-2 gap-2">
@@ -195,7 +176,19 @@ export default function ProfilePage() {
                     ))}
                   </div>
                 </div>
+                <div className="flex justify-between">
+                  <Button type="button" onClick={prevStep} variant="outline">
+                    Back
+                  </Button>
+                  <Button type="button" onClick={nextStep}>
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
 
+            {step === 4 && (
+              <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="preferredTime">Preferred Time to Receive Prompts</Label>
                   <Select
@@ -214,15 +207,20 @@ export default function ProfilePage() {
                     </SelectContent>
                   </Select>
                 </div>
+                {error && <p className="text-sm font-medium text-red-500">{error}</p>}
+                <div className="flex justify-between">
+                  <Button type="button" onClick={prevStep} variant="outline">
+                    Back
+                  </Button>
+                  <Button type="submit" disabled={isLoading}>
+                    {isLoading ? "Saving..." : "Complete Setup"}
+                  </Button>
+                </div>
               </div>
-
-              <Button type="submit" disabled={saving}>
-                {saving ? "Saving..." : "Save Changes"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
+            )}
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

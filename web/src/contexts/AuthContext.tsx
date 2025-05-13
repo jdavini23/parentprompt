@@ -1,7 +1,9 @@
+"use client";
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '../types';
-import { createSupabaseBrowserClient } from '@/lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { User as SupabaseUser } from '@supabase/supabase-js';
+import type { Database } from '@/lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -19,25 +21,56 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const supabase = createSupabaseBrowserClient();
+  const supabase = createClientComponentClient<Database>();
 
   // Convert Supabase user to our User type
   const mapSupabaseUser = async (supabaseUser: SupabaseUser): Promise<User> => {
+    console.log('[AuthContext] mapSupabaseUser called for user ID:', supabaseUser?.id);
+    if (!supabaseUser?.id) {
+      console.error('[AuthContext] mapSupabaseUser: supabaseUser or supabaseUser.id is null/undefined.');
+      return {
+        id: 'unknown',
+        email: supabaseUser?.email || 'unknown',
+        firstName: '',
+        lastName: '',
+        createdAt: new Date().toISOString(),
+      };
+    }
+
     // Fetch additional user data from our users table
+    // Use .maybeSingle() to avoid error if user profile doesn't exist yet
     const { data, error } = await supabase
       .from('users')
       .select('*')
       .eq('id', supabaseUser.id)
-      .single();
+      .maybeSingle();
 
     if (error) {
-      console.error('Error fetching user data:', error);
-      // Return a basic user object if we can't fetch additional data
+      // This will catch actual database errors, not 'no rows found'
+      console.error('[AuthContext] Error fetching user data from \'users\' table. SupabaseUser ID:', supabaseUser.id);
+      console.error('[AuthContext] Error object:', error);
+      console.error('[AuthContext] Stringified error object:', JSON.stringify(error));
+      console.log('[AuthContext] Data object alongside error:', data); // Data might be null here too
+      // Return a basic user object if we can't fetch additional data due to an actual error
       return {
         id: supabaseUser.id,
         email: supabaseUser.email || '',
         firstName: '',
         lastName: '',
+        phoneNumber: '', // Ensure all User fields are present
+        createdAt: supabaseUser.created_at || new Date().toISOString(),
+      };
+    }
+
+    if (!data) {
+      // This case is now explicitly for when .maybeSingle() returns no data (profile missing)
+      console.warn('[AuthContext] No profile data found in \'users\' table for user ID:', supabaseUser.id, '. Returning basic user object.');
+      return {
+        id: supabaseUser.id,
+        email: supabaseUser.email || '',
+        firstName: '', // Default to empty strings as profile is missing
+        lastName: '',  // Default to empty strings as profile is missing
+        phoneNumber: '', // Ensure all User fields are present
         createdAt: supabaseUser.created_at || new Date().toISOString(),
       };
     }
