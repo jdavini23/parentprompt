@@ -1,0 +1,46 @@
+/* Button styles that extend TailwindCSS */
+
+/* Primary button with hover and focus states */
+.btn-primary {
+  @apply px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors;
+}
+
+/* Secondary button with hover and focus states */
+.btn-secondary {
+  @apply px-4 py-2 bg-white text-blue-600 border border-blue-600 rounded-md hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors;
+}
+
+/* Danger button with hover and focus states */
+.btn-danger {
+  @apply px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors;
+}
+
+/* Success button with hover and focus states */
+.btn-success {
+  @apply px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors;
+}
+
+/* Disabled button */
+.btn-disabled {
+  @apply px-4 py-2 bg-gray-300 text-gray-500 rounded-md cursor-not-allowed;
+}
+
+/* Small button variant */
+.btn-sm {
+  @apply px-3 py-1 text-sm;
+}
+
+/* Large button variant */
+.btn-lg {
+  @apply px-6 py-3 text-lg;
+}
+
+/* Full width button */
+.btn-full {
+  @apply w-full;
+}
+
+/* Icon button */
+.btn-icon {
+  @apply p-2 rounded-full hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors;
+}
