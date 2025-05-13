@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '../types';
+import { createSupabaseBrowserClient } from '@/lib/supabase';
+import { User as SupabaseUser } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
@@ -17,28 +19,56 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const supabase = createSupabaseBrowserClient();
 
-  // Mock authentication functions for demonstration purposes
-  // In a real app, these would interact with Supabase or another auth provider
+  // Convert Supabase user to our User type
+  const mapSupabaseUser = async (supabaseUser: SupabaseUser): Promise<User> => {
+    // Fetch additional user data from our users table
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', supabaseUser.id)
+      .single();
+
+    if (error) {
+      console.error('Error fetching user data:', error);
+      // Return a basic user object if we can't fetch additional data
+      return {
+        id: supabaseUser.id,
+        email: supabaseUser.email || '',
+        firstName: '',
+        lastName: '',
+        createdAt: supabaseUser.created_at || new Date().toISOString(),
+      };
+    }
+
+    // Return user with additional profile data
+    return {
+      id: supabaseUser.id,
+      email: supabaseUser.email || '',
+      firstName: data.first_name || '',
+      lastName: data.last_name || '',
+      phoneNumber: data.phone_number,
+      createdAt: supabaseUser.created_at || new Date().toISOString(),
+    };
+  };
+
+  // Sign in with email and password
   const signIn = async (email: string, password: string) => {
     try {
       setLoading(true);
-      // This would be replaced with actual authentication logic
-      console.log(`Signing in with ${email} and password`);
       
-      // Mock successful login
-      const mockUser: User = {
-        id: '123',
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
-        firstName: 'Jane',
-        lastName: 'Parent',
-        createdAt: new Date().toISOString(),
-      };
-      
-      setUser(mockUser);
-      
-      // Store auth state in localStorage or cookies
-      localStorage.setItem('auth_user', JSON.stringify(mockUser));
+        password,
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        const mappedUser = await mapSupabaseUser(data.user);
+        setUser(mappedUser);
+      }
     } catch (error) {
       console.error('Error signing in:', error);
       throw error;
@@ -47,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Sign up with email and password
   const signUp = async (
     email: string, 
     password: string, 
@@ -55,22 +86,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ) => {
     try {
       setLoading(true);
-      // This would be replaced with actual registration logic
-      console.log(`Signing up with ${email}, ${firstName} ${lastName}, and password`);
       
-      // Mock successful registration
-      const mockUser: User = {
-        id: '123',
+      // Create the auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
-        firstName,
-        lastName,
-        createdAt: new Date().toISOString(),
-      };
-      
-      setUser(mockUser);
-      
-      // Store auth state in localStorage or cookies
-      localStorage.setItem('auth_user', JSON.stringify(mockUser));
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (authError) throw authError;
+
+      if (authData.user) {
+        // Create the user profile in our users table
+        const { error: profileError } = await supabase.from('users').insert([
+          {
+            id: authData.user.id,
+            email,
+            first_name: firstName,
+            last_name: lastName,
+          },
+        ]);
+
+        if (profileError) throw profileError;
+
+        // Create the user object
+        const newUser: User = {
+          id: authData.user.id,
+          email,
+          firstName,
+          lastName,
+          createdAt: authData.user.created_at || new Date().toISOString(),
+        };
+
+        setUser(newUser);
+      }
     } catch (error) {
       console.error('Error signing up:', error);
       throw error;
@@ -79,16 +130,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Sign out
   const signOut = async () => {
     try {
       setLoading(true);
-      // This would be replaced with actual logout logic
-      console.log('Signing out');
+      
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
       
       setUser(null);
-      
-      // Remove auth state from localStorage or cookies
-      localStorage.removeItem('auth_user');
     } catch (error) {
       console.error('Error signing out:', error);
       throw error;
@@ -97,11 +147,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Reset password
   const resetPassword = async (email: string) => {
     try {
       setLoading(true);
-      // This would be replaced with actual password reset logic
-      console.log(`Resetting password for ${email}`);
+      
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/reset-password`,
+      });
+      
+      if (error) throw error;
     } catch (error) {
       console.error('Error resetting password:', error);
       throw error;
@@ -110,27 +165,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Check for existing session on mount
+  // Check for existing session on mount and set up auth state listener
   useEffect(() => {
-    const checkSession = async () => {
+    const initializeAuth = async () => {
       try {
         setLoading(true);
         
-        // Check if user is stored in localStorage
-        const storedUser = localStorage.getItem('auth_user');
+        // Get the current session
+        const { data: { session } } = await supabase.auth.getSession();
         
-        if (storedUser) {
-          setUser(JSON.parse(storedUser));
+        if (session?.user) {
+          const mappedUser = await mapSupabaseUser(session.user);
+          setUser(mappedUser);
         }
+        
+        // Set up auth state change listener
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+          async (event, session) => {
+            if (session?.user) {
+              const mappedUser = await mapSupabaseUser(session.user);
+              setUser(mappedUser);
+            } else {
+              setUser(null);
+            }
+          }
+        );
+        
+        // Clean up the subscription when the component unmounts
+        return () => {
+          subscription.unsubscribe();
+        };
       } catch (error) {
-        console.error('Error checking session:', error);
+        console.error('Error initializing auth:', error);
         setUser(null);
       } finally {
         setLoading(false);
       }
     };
     
-    checkSession();
+    initializeAuth();
   }, []);
 
   // Create the value object that will be provided by the context
