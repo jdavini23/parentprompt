@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useAuth } from "@/contexts/auth-context"
+import { useAuth } from "@/contexts/AuthContext"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Navigation } from "@/components/navigation"
@@ -15,7 +15,10 @@ export default function HistoryPage() {
 
   useEffect(() => {
     const fetchPrompts = async () => {
-      if (!user) return
+      if (!user) {
+        setLoading(false);
+        return;
+      }
 
       try {
         const promptsData = await getPromptHistory(user.id)

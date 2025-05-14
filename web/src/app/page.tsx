@@ -11,17 +11,42 @@ import { supabase, isUsingRealCredentials } from "@/lib/supabase"
 import { DebugEnv } from "@/components/debug-env"
 
 export default function HomePage() {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const [prompt, setPrompt] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [loadingTimeout, setLoadingTimeout] = useState(false)
   const [profile, setProfile] = useState<any>(null)
   const [showDebug, setShowDebug] = useState(true)
 
+  // Add a timeout to prevent loading state from getting stuck
+  useEffect(() => {
+    // Set a timeout to force loading to false after 8 seconds
+    const timeout = setTimeout(() => {
+      if (loading) {
+        console.warn('Loading timeout reached, forcing loading state to false');
+        setLoading(false);
+        setLoadingTimeout(true);
+      }
+    }, 8000);
+    
+    return () => clearTimeout(timeout);
+  }, [loading]);
+
   useEffect(() => {
     const fetchData = async () => {
-      if (!user) return
+      if (!user) {
+        // If no user after 2 seconds, stop loading
+        setTimeout(() => {
+          if (!user && loading) {
+            console.log('No user after timeout, stopping loading');
+            setLoading(false);
+          }
+        }, 2000);
+        return;
+      }
 
       try {
+        console.log('Fetching user profile and prompt data...');
         // Fetch user profile
         const { data: profileData } = await supabase.from("profiles").select("*").eq("id", user.id).single()
 
@@ -38,7 +63,7 @@ export default function HomePage() {
     }
 
     fetchData()
-  }, [user])
+  }, [user, loading])
 
   const handleMarkCompleted = async () => {
     if (!prompt) return
@@ -64,8 +89,67 @@ export default function HomePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-gray-600 text-sm">Loading your parenting prompts...</p>
+      </div>
+    )
+  }
+  
+  // If we hit the loading timeout, show a fallback UI with demo content
+  if (loadingTimeout || (!user && !loading)) {
+    return (
+      <div className="md:pl-64">
+        <Navigation />
+        <div className="container max-w-4xl py-8 md:py-12">
+          <div className="mb-8 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
+            <h2 className="font-semibold text-yellow-800 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+              Authentication Issue
+            </h2>
+            <p className="mt-2 text-sm text-yellow-700">
+              We're having trouble authenticating your account. You're viewing demo content.
+            </p>
+          </div>
+          
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold">Good {getTimeOfDay()}, Dad!</h1>
+            <p className="text-muted-foreground">Here's your parenting prompt for today.</p>
+          </div>
+          
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle>Today's Prompt</CardTitle>
+              <CardDescription>
+                {new Date().toLocaleDateString("en-US", {
+                  weekday: "long",
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xl">
+                Read a book with your child today. Ask them to point out their favorite pictures and talk about why they like them.
+              </p>
+            </CardContent>
+            <CardFooter className="flex justify-between">
+              <Button variant="outline" className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5" />
+                Mark Complete
+              </Button>
+              <Button variant="outline" className="flex items-center gap-2">
+                <StarOff className="w-5 h-5" />
+                Add to Favorites
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
       </div>
     )
   }

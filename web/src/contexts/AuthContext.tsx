@@ -200,44 +200,137 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check for existing session on mount and set up auth state listener
   useEffect(() => {
+    // Set a timeout to ensure loading state doesn't get stuck
+    const loadingTimeout = setTimeout(() => {
+      if (loading) {
+        console.warn('[AuthContext] Loading timeout reached, forcing loading state to false');
+        setLoading(false);
+      }
+    }, 5000); // 5 second timeout
+    
     const initializeAuth = async () => {
       try {
         setLoading(true);
+        console.log('[AuthContext] Initializing auth...');
         
-        // Get the current session
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (session?.user) {
-          const mappedUser = await mapSupabaseUser(session.user);
-          setUser(mappedUser);
-        }
-        
-        // Set up auth state change listener
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-          async (event, session) => {
-            if (session?.user) {
+        // Wrap the session retrieval in a try/catch to prevent it from breaking the UI
+        try {
+          // Get the current session
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+          
+          if (sessionError) {
+            console.error('[AuthContext] Session error:', sessionError);
+            // Handle refresh token errors by clearing the session
+            if (sessionError.message?.includes('Refresh Token') || 
+                sessionError.message?.includes('Invalid Refresh Token')) {
+              console.warn('[AuthContext] Refresh token error detected, signing out');
+              try {
+                await supabase.auth.signOut();
+              } catch (signOutError) {
+                console.error('[AuthContext] Error during sign out:', signOutError);
+              } finally {
+                // Always set user to null regardless of errors
+                setUser(null);
+              }
+            }
+          } else if (session?.user) {
+            try {
               const mappedUser = await mapSupabaseUser(session.user);
               setUser(mappedUser);
-            } else {
-              setUser(null);
+            } catch (mapError) {
+              console.error('[AuthContext] Error mapping user:', mapError);
+              // If mapping fails, still set a basic user object
+              setUser({
+                id: session.user.id,
+                email: session.user.email || '',
+                firstName: '',
+                lastName: '',
+                createdAt: session.user.created_at || new Date().toISOString(),
+              });
             }
           }
-        );
+        } catch (sessionError) {
+          console.error('[AuthContext] Critical error getting session:', sessionError);
+          // Don't let session errors break the app
+          setUser(null);
+        }
+        
+        // Set up auth state change listener with error handling
+        let subscription: { unsubscribe: () => void } | undefined;
+        try {
+          const { data } = supabase.auth.onAuthStateChange(
+            async (event, session) => {
+              console.log('[AuthContext] Auth state change event:', event);
+              
+              try {
+                if (event === 'TOKEN_REFRESHED') {
+                  console.log('[AuthContext] Token refreshed successfully');
+                }
+                
+                if (event === 'SIGNED_OUT') {
+                  console.log('[AuthContext] User signed out');
+                  setUser(null);
+                  return;
+                }
+                
+                if (session?.user) {
+                  try {
+                    const mappedUser = await mapSupabaseUser(session.user);
+                    setUser(mappedUser);
+                  } catch (mapError) {
+                    console.error('[AuthContext] Error mapping user during state change:', mapError);
+                    // If mapping fails, still set a basic user object
+                    setUser({
+                      id: session.user.id,
+                      email: session.user.email || '',
+                      firstName: '',
+                      lastName: '',
+                      createdAt: session.user.created_at || new Date().toISOString(),
+                    });
+                  }
+                } else {
+                  setUser(null);
+                }
+              } catch (eventError) {
+                console.error('[AuthContext] Error handling auth state change:', eventError);
+                // Don't let event handling errors break the app
+              }
+            }
+          );
+          
+          subscription = data.subscription;
+        } catch (subscriptionError) {
+          console.error('[AuthContext] Error setting up auth state listener:', subscriptionError);
+          // If we can't set up the listener, we'll continue without it
+        }
         
         // Clean up the subscription when the component unmounts
         return () => {
-          subscription.unsubscribe();
+          if (subscription) {
+            try {
+              subscription.unsubscribe();
+            } catch (unsubError) {
+              console.error('[AuthContext] Error unsubscribing:', unsubError);
+            }
+          }
         };
       } catch (error) {
-        console.error('Error initializing auth:', error);
+        console.error('[AuthContext] Critical error in auth initialization:', error);
+        // Just set user to null but don't redirect - let middleware handle this
         setUser(null);
       } finally {
         setLoading(false);
+        console.log('[AuthContext] Auth initialization complete');
       }
     };
     
     initializeAuth();
-  }, []);
+    
+    // Clean up the timeout when the component unmounts
+    return () => {
+      clearTimeout(loadingTimeout);
+    };
+  }, []); // Remove loading from dependencies to prevent infinite loop
 
   // Create the value object that will be provided by the context
   const value = {

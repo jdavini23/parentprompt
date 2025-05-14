@@ -55,13 +55,15 @@ export function Navigation() {
                     >
                       Profile Settings
                     </Link>
-                    <Link
-                      href="/bedtime-story"
+                    <a
+                      href="https://stepintostorytime.com"
                       className="block p-2 rounded-md hover:bg-muted"
+                      target="_blank"
+                      rel="noopener noreferrer"
                       onClick={() => setIsOpen(false)}
                     >
-                      Generate Bedtime Story
-                    </Link>
+                      Generate Story
+                    </a>
                   </div>
                 </div>
                 <Button
@@ -107,12 +109,14 @@ export function Navigation() {
               >
                 Profile Settings
               </Link>
-              <Link
-                href="/bedtime-story"
+              <a
+                href="https://stepintostorytime.com"
                 className="flex items-center px-3 py-2 rounded-md text-muted-foreground hover:bg-muted hover:text-primary"
+                target="_blank"
+                rel="noopener noreferrer"
               >
-                Generate Bedtime Story
-              </Link>
+                Generate Story
+              </a>
             </div>
           </nav>
           <div className="px-3 mt-auto">

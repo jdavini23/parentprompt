@@ -16,11 +16,53 @@ export async function middleware(req: NextRequest) {
       return res
     }
 
+    // Public paths that don't require authentication
+    const publicPaths = [
+      '/login',
+      '/signup',
+      '/',  // Add the root path as public
+      '/auth/callback',
+      '/auth/reset-password',
+      '/api/auth',
+      '/_next',
+      '/favicon.ico',
+      '/images',
+      '/fonts',
+      '/static'
+    ]
+    
+    // Check if the current path is public
+    const isPublicPath = publicPaths.some(path => 
+      req.nextUrl.pathname === path || req.nextUrl.pathname.startsWith(path)
+    )
+    
+    console.log(`[Middleware] Path: ${req.nextUrl.pathname}, isPublic: ${isPublicPath}`)
+    
+    // If it's a public path, skip auth checks
+    if (isPublicPath) {
+      console.log('[Middleware] Public path detected, skipping auth checks')
+      return res
+    }
+
     const supabase = createMiddlewareClient({ req, res })
 
+    // Get the session with error handling
     const {
       data: { session },
+      error: sessionError
     } = await supabase.auth.getSession()
+    
+    // Handle session errors, particularly refresh token issues
+    if (sessionError) {
+      console.error('[Middleware] Session error:', sessionError)
+      
+      // If there's a refresh token error, redirect to login
+      if (sessionError.message?.includes('Refresh Token') || 
+          sessionError.message?.includes('Invalid Refresh Token')) {
+        console.warn('[Middleware] Refresh token error detected, redirecting to login')
+        return NextResponse.redirect(new URL('/login', req.url))
+      }
+    }
 
     // Check if the user is authenticated
     const isAuthenticated = !!session
