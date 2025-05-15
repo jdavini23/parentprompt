@@ -1,77 +1,83 @@
-"use client"
+'use client';
 
-import type React from "react"
+import type React from 'react';
 
-import { useEffect, useState } from "react"
-import { useAuth } from "@/contexts/AuthContext"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { supabase, getSupabaseClient } from "@/lib/supabase"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { toast } from "@/hooks/use-toast"
+import { useEffect, useState, useCallback } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { supabase, getSupabaseClient } from '@/lib/supabase';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { toast } from '@/hooks/use-toast';
 
 const interests = [
-  { id: "reading", label: "Reading" },
-  { id: "music", label: "Music" },
-  { id: "outdoors", label: "Outdoors" },
-  { id: "sports", label: "Sports" },
-  { id: "art", label: "Art & Crafts" },
-  { id: "science", label: "Science" },
-  { id: "cooking", label: "Cooking" },
-]
+  { id: 'reading', label: 'Reading' },
+  { id: 'music', label: 'Music' },
+  { id: 'outdoors', label: 'Outdoors' },
+  { id: 'sports', label: 'Sports' },
+  { id: 'art', label: 'Art & Crafts' },
+  { id: 'science', label: 'Science' },
+  { id: 'cooking', label: 'Cooking' },
+];
 
 const timeOptions = [
-  { value: "morning", label: "Morning (8:00 AM)" },
-  { value: "afternoon", label: "Afternoon (2:00 PM)" },
-  { value: "evening", label: "Evening (7:00 PM)" },
-]
+  { value: 'morning', label: 'Morning (8:00 AM)' },
+  { value: 'afternoon', label: 'Afternoon (2:00 PM)' },
+  { value: 'evening', label: 'Evening (7:00 PM)' },
+];
 
 // Diagnostic function to test database connectivity
 async function testDatabaseConnection() {
-  console.log("Testing database connection...")
+  console.log('Testing database connection...');
   try {
     // Get admin client
-    const adminClient = getSupabaseClient(true)
-    console.log("Admin client obtained")
-    
+    const adminClient = getSupabaseClient(true);
+    console.log('Admin client obtained');
+
     // Test connection by checking if tables exist
-    console.log("Checking if users table exists...")
+    console.log('Checking if users table exists...');
     const { data: usersData, error: usersError } = await adminClient
       .from('users')
       .select('count')
-      .limit(1)
-    
-    console.log("Users table check result:", { data: usersData, error: usersError })
-    
-    console.log("Checking if children table exists...")
+      .limit(1);
+
+    console.log('Users table check result:', { data: usersData, error: usersError });
+
+    console.log('Checking if children table exists...');
     const { data: childrenData, error: childrenError } = await adminClient
       .from('children')
       .select('count')
-      .limit(1)
-    
-    console.log("Children table check result:", { data: childrenData, error: childrenError })
-    
+      .limit(1);
+
+    console.log('Children table check result:', { data: childrenData, error: childrenError });
+
     // Check RLS policies
-    console.log("Checking RLS policies...")
+    console.log('Checking RLS policies...');
     const { data: policiesData, error: policiesError } = await adminClient
       .rpc('get_policies')
-      .select('*')
-    
-    console.log("RLS policies check result:", { data: policiesData, error: policiesError })
-    
+      .select('*');
+
+    console.log('RLS policies check result:', { data: policiesData, error: policiesError });
+
     return {
       usersTable: !usersError,
       childrenTable: !childrenError,
-      policies: policiesData
-    }
+      policies: policiesData,
+    };
   } catch (error) {
-    console.error("Database connection test failed:", error)
+    console.error('Database connection test failed:', error);
     return {
-      error: error instanceof Error ? error.message : String(error)
-    }
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -81,374 +87,472 @@ export default function ProfilePage() {
     // If no localStorage data, use basic user info from auth context
     const defaultProfile = {
       id: user?.id || 'unknown',
-      name: user?.firstName || '',
+      first_name: user?.firstName?.split(' ')[0] || '',
+      last_name: user?.firstName?.split(' ').slice(1).join(' ') || '',
       child_name: '',
       child_age: 0,
       interests: [],
-      preferred_time: 'morning'
-    }
-    
-    setProfile(defaultProfile)
+      preferred_time: 'morning',
+    };
+
+    setProfile(defaultProfile);
     setFormData({
       name: user?.firstName || '',
       childName: '',
       childAge: '',
       interests: [],
       preferredTime: 'morning',
-    })
-  }
-  const { user } = useAuth()
-  const [profile, setProfile] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [diagnosisRunning, setDiagnosisRunning] = useState(false)
-  const [diagnosisResults, setDiagnosisResults] = useState<any>(null)
+    });
+  };
+  const { user } = useAuth();
+  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [diagnosisRunning, setDiagnosisRunning] = useState(false);
+  const [diagnosisResults, setDiagnosisResults] = useState<any>(null);
   const [formData, setFormData] = useState({
-    name: "",
-    childName: "",
-    childAge: "",
+    name: '',
+    childName: '',
+    childAge: '',
     interests: [] as string[],
-    preferredTime: "morning",
-  })
+    preferredTime: 'morning',
+  });
 
-  useEffect(() => {
-    const fetchProfile = async () => {
+  // Helper function to calculate age from birthdate
+  const calculateAge = (birthdate: string): number => {
+    const birthDate = new Date(birthdate);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    
+    return age;
+  };
+
+  // Helper function to calculate birthdate from age
+  const calculateBirthdate = (age: number): string => {
+    const today = new Date();
+    const birthYear = today.getFullYear() - age;
+    return new Date(birthYear, today.getMonth(), today.getDate()).toISOString().split('T')[0];
+  };
+
+  const fetchProfile = useCallback(async () => {
       if (!user) {
         setLoading(false);
         return;
       }
-
+      
+      setLoading(true);
       try {
-        // Try to fetch from users table (correct table according to schema)
-        // Use maybeSingle() instead of single() to handle the case when no rows are found
-        const { data, error } = await supabase.from("users").select("*").eq("id", user.id).maybeSingle()
+        // Fetch user data from users table
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle();
 
-        if (error) {
-          console.error("Error fetching profile:", error)
-        
+        if (userError) {
+          console.error('Error fetching user data:', userError);
+          throw userError;
+        }
+
+        // Initialize form data with user data if available
+        if (userData) {
+          // Combine first_name and last_name for the name field
+          const fullName = [userData.first_name, userData.last_name].filter(Boolean).join(' ');
+          setProfile(userData);
+          setFormData(prev => ({
+            ...prev,
+            name: fullName,
+          }));
+        }
+
+        // Fetch child data from children table
+        const { data: childData, error: childError } = await supabase
+          .from('children')
+          .select('*')
+          .eq('user_id', user?.id || 'guest-user')
+          .maybeSingle();
+
+        if (childData) {
+          setFormData(prev => ({
+            ...prev,
+            childName: childData.name || '',
+            childAge: childData.birthdate ? calculateAge(childData.birthdate).toString() : '',
+            interests: childData.interests || [],
+          }));
+        } else if (childError) {
+          console.error('Error fetching child data:', childError);
           // Fallback to localStorage if available
-          const localProfile = localStorage.getItem(`user_profile_${user.id}`)
-          if (localProfile) {
-            try {
-              const parsedProfile = JSON.parse(localProfile)
-              setProfile(parsedProfile)
-              setFormData({
-                name: parsedProfile.name || user.firstName || "",
-                childName: parsedProfile.child_name || "",
-                childAge: parsedProfile.child_age?.toString() || "",
-                interests: parsedProfile.interests || [],
-                preferredTime: parsedProfile.preferred_time || "morning",
-              })
-            } catch (e) {
-              console.error("Error parsing local profile:", e)
-              useDefaultProfile()
-            }
-          } else {
-            useDefaultProfile()
-          }
-        } else if (data) { // No Supabase error, and data is truthy (record found in 'users' table)
-          setProfile(data);
-          setFormData({
-            name: data.first_name || '', // Use first_name from 'users' table.
-            // Fields below are not strictly in 'users' table as per memory, provide fallbacks
-            childName: data.child_name || '', 
-            childAge: data.child_age != null ? data.child_age.toString() : '', 
-            interests: data.interests || [], 
-            preferredTime: data.preferred_time || 'morning', 
-          });
-        } else { // No Supabase error, and data is null (no record in 'users' table for this user.id)
-          console.log(`No profile found in 'users' table for user ID: ${user?.id}. Checking localStorage.`);
-          const localProfile = localStorage.getItem(`user_profile_${user?.id}`);
+          const localProfile = localStorage.getItem(`user_profile_${user.id}`);
           if (localProfile) {
             try {
               const parsedProfile = JSON.parse(localProfile);
-              setProfile(parsedProfile); // localStorage data might have all fields
-              setFormData({
-                name: parsedProfile.name || (user && user.firstName) || '', // Prefer localStorage name, then auth user.firstName
+              setFormData(prev => ({
+                ...prev,
                 childName: parsedProfile.child_name || '',
                 childAge: parsedProfile.child_age?.toString() || '',
                 interests: parsedProfile.interests || [],
                 preferredTime: parsedProfile.preferred_time || 'morning',
-              });
+              }));
             } catch (e) {
-              console.error("Error parsing local profile:", e);
-              useDefaultProfile(); // Fallback to default profile settings
+              console.error('Error parsing local profile:', e);
             }
-          } else {
-            // No DB record, no localStorage record
-            useDefaultProfile(); // Fallback to default profile settings
           }
         }
-      } catch (error) {
-        console.error("Error fetching profile:", error)
-      } finally {
-        setLoading(false)
-      }
-    }
 
-    fetchProfile()
-  }, [user])
+        // If no user data was found, use default profile
+        if (!userData) {
+          useDefaultProfile();
+        }
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+      } finally {
+        setLoading(false);
+      }
+    }, [user]);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [user, fetchProfile]);
 
   const handleInterestChange = (id: string, checked: boolean) => {
     if (checked) {
       setFormData({
         ...formData,
         interests: [...formData.interests, id],
-      })
+      });
     } else {
       setFormData({
         ...formData,
-        interests: formData.interests.filter((interest) => interest !== id),
-      })
+        interests: formData.interests.filter(interest => interest !== id),
+      });
     }
-  }
+  };
 
   const runDiagnostics = async () => {
-    setDiagnosisRunning(true)
+    setDiagnosisRunning(true);
     try {
-      const results = await testDatabaseConnection()
-      setDiagnosisResults(results)
-      console.log("Diagnosis complete:", results)
+      const results = await testDatabaseConnection();
+      setDiagnosisResults(results);
+      console.log('Diagnosis complete:', results);
     } catch (error) {
-      console.error("Diagnosis failed:", error)
-      setDiagnosisResults({ error: String(error) })
+      console.error('Diagnosis failed:', error);
+      setDiagnosisResults({ error: String(error) });
     } finally {
-      setDiagnosisRunning(false)
+      setDiagnosisRunning(false);
     }
-  }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
-    console.log("Starting profile update...")
+    e.preventDefault();
+    setSaving(true);
+    console.log('Starting profile update...');
 
-    // Define profileData for localStorage fallback
-    let profileData: {
-      id: string;
-      name: string;
-      child_name: string;
-      child_age: number;
-      interests: string[];
-      preferred_time: string;
-      updated_at: string;
-    } = {
-      id: '',
+    // Use a fallback ID if user is not authenticated
+    const userId = user?.id || 'guest-user';
+    console.log('Using user ID:', userId);
+    console.log('User authenticated, proceeding with update');
+
+    // Declare profileData at the top level of the function
+    let profileData: any = {
+      id: userId,
       name: '',
       child_name: '',
       child_age: 0,
       interests: [],
       preferred_time: 'morning',
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+    };
+
+    try {
+
+    // Save to localStorage as fallback
+    try {
+      localStorage.setItem(`user_profile_${userId}`, JSON.stringify(profileData));
+      console.log('Saved to localStorage successfully');
+    } catch (e) {
+      console.error('Error saving to localStorage:', e);
+    }
+
+    // Use admin client for database operations to bypass RLS
+    console.log('Getting Supabase admin client...');
+    const adminClient = getSupabaseClient(true);
+    console.log('Admin client:', adminClient);
+    if (!adminClient) {
+      console.error('Admin client not available');
+      throw new Error('Admin client not available');
+    }
+    console.log('Admin client obtained successfully');
+
+    // Log environment variable for service role key (masking for security)
+    const srk = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
+    if (srk) {
+      console.log('Service role key present, starts with:', srk.slice(0, 6) + '...');
+    } else {
+      console.error('Service role key is missing!');
+    }
+
+    // Proceed with database operations
+    console.log('Proceeding with database operations');
+
+    // Check if service role key is available
+    if (!process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
+      console.error('Missing Supabase service role key');
+      throw new Error('Missing Supabase service role key');
     }
 
     try {
-      // Use a fallback ID if user is not authenticated
-      const userId = user?.id || 'guest-user';
-      console.log("Using user ID:", userId)
-      console.log("User authenticated, proceeding with update")
-
-      // Create profile data for localStorage fallback
-      profileData = {
-        id: userId,
-        name: formData.name,
-        child_name: formData.childName,
-        child_age: Number.parseInt(formData.childAge) || 0,
-        interests: formData.interests,
-        preferred_time: formData.preferredTime,
-        updated_at: new Date().toISOString()
-      }
-      console.log("Profile data prepared for localStorage")
+      // Get admin client for the update
+      const adminClient = getSupabaseClient(true);
       
-      // Save to localStorage as fallback
-      try {
-        localStorage.setItem(`user_profile_${userId}`, JSON.stringify(profileData))
-        console.log("Saved to localStorage successfully")
-      } catch (e) {
-        console.error("Error saving to localStorage:", e)
+      if (!user?.id) {
+        console.error('User is not authenticated, cannot update database');
+        throw new Error('User is not authenticated');
       }
 
-      // Use admin client for database operations to bypass RLS
-      console.log("Getting Supabase admin client...")
-      const adminClient = getSupabaseClient(true)
-      if (!adminClient) {
-        console.error("Admin client not available")
-        throw new Error("Admin client not available")
-      }
-      console.log("Admin client obtained successfully")
+      // Split full name into first and last name
+      const [firstName, ...lastNameParts] = formData.name.split(' ');
+      const lastName = lastNameParts.join(' ');
+      const now = new Date().toISOString();
 
-      // Proceed with database operations
-      console.log("Proceeding with database operations")
-      
-      // For debugging - let's skip database operations and use localStorage only
-      console.log("Skipping database operations and using localStorage only for now")
-      
-      // Show success toast
-      toast({
-        title: "Profile updated",
-        description: "Your profile has been saved locally. We're temporarily skipping database updates while we fix some issues.",
-      })
-      
-      console.log("Profile update complete (localStorage only)")
-      return
-      
-      /* Temporarily disabled database operations
-      // Check if service role key is available
-      if (!process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
-        console.error("Missing Supabase service role key")
-        throw new Error("Missing Supabase service role key")
-      }
-      
-      // Update user's name in the users table - using the correct column name from the schema
-      console.log("Updating user in database...")
-      if (!user || !user.id) {
-        console.error("User is not authenticated, cannot update database")
-        throw new Error("User is not authenticated")
-      }
-      
-      const { error: userUpdateError } = await adminClient
-        .from("users")
-        .update({ 
-          // Using the correct column name from the schema
-          first_name: formData.name || '',
-          updated_at: new Date().toISOString() 
-        })
-        .eq('id', user.id)
+      // Update user data in the users table
+      console.log('Updating user data in users table...');
+      const { data: userUpdateData, error: userUpdateError } = await adminClient
+        .from('users')
+        .upsert(
+          {
+            id: user.id,
+            first_name: firstName || '',
+            last_name: lastName || '',
+            updated_at: now,
+          },
+          {
+            onConflict: 'id',
+            count: 'exact',
+          }
+        )
+        .select();
 
       if (userUpdateError) {
-        console.error("Error updating user:", userUpdateError)
+        console.error('Error updating user data:', userUpdateError);
         // Continue with child updates even if user update fails
       } else {
-        console.log("User updated successfully")
+        console.log('Successfully updated user data:', userUpdateData);
       }
-      */
 
-      /* Temporarily disabled database operations for children
-      // Handle child data in children table
-      console.log("Preparing child data...")
-      // User ID validation already done above
-      const childData = {
-        user_id: user.id,
-        name: formData.childName,
-        birthdate: new Date(new Date().setFullYear(new Date().getFullYear() - (Number.parseInt(formData.childAge) || 0))).toISOString(),
-        interests: formData.interests
-      }
-      console.log("Child data prepared:", childData)
-
-      // Check if child exists using direct query instead of RPC
-      console.log("Checking if child exists...")
-      const { data: existingChildren, error: fetchError } = await adminClient
-        .from('children')
-        .select('*')
-        .eq('user_id', user.id)
-        .limit(1)
-      
-      if (fetchError) {
-        console.error("Error fetching child:", fetchError)
-        throw fetchError
-      }
-      console.log("Child check complete, found:", existingChildren?.length || 0, "children")
-
-      let childError = null
-      if (existingChildren && existingChildren.length > 0) {
-        // Update existing child using direct query
-        console.log("Updating existing child...")
-        const { error } = await adminClient
+      // Only update child data if child name is provided
+      if (formData.childName) {
+        console.log('Updating child data in children table...');
+        const { data: childUpdateData, error: childUpdateError } = await adminClient
           .from('children')
-          .update({
-            name: childData.name,
-            birthdate: childData.birthdate,
-            interests: childData.interests,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existingChildren[0].id)
-        
-        childError = error
-        if (!error) {
-          console.log("Child updated successfully")
-        }
-      } else {
-        // Create new child using direct insert
-        console.log("Creating new child...")
-        const { error } = await adminClient
-          .from('children')
-          .insert({
-            user_id: user.id,
-            name: childData.name,
-            birthdate: childData.birthdate,
-            interests: childData.interests
-          })
-        
-        childError = error
-        if (!error) {
-          console.log("Child created successfully")
+          .upsert(
+            {
+              user_id: user.id,
+              name: formData.childName,
+              birthdate: formData.childAge ? calculateBirthdate(parseInt(formData.childAge, 10)) : null,
+              interests: formData.interests,
+              updated_at: now,
+            },
+            {
+              onConflict: 'user_id',
+              count: 'exact',
+            }
+          )
+          .select();
+
+        if (childUpdateError) {
+          console.error('Error updating child data:', childUpdateError);
+        } else {
+          console.log('Successfully updated child data:', childUpdateData);
         }
       }
 
-      if (childError) {
-        console.error("Error updating child data:", childError)
-        throw childError
-      }
-      */
-      // Success - show toast notification
+      // Update local state and show success message
       toast({
-        title: "Profile updated",
-        description: "Your profile has been updated successfully.",
-      })
+        title: 'Profile updated successfully',
+        description: 'Your profile has been updated.',
+      });
+
+      // Refresh the profile data
+      await fetchProfile();
     } catch (error) {
-      console.error("Error updating profile:", error)
-      // Log more detailed error information
-      if (error instanceof Error) {
-        console.error("Error message:", error.message)
-        console.error("Error stack:", error.stack)
-      }
-      
-      // Check if the admin client is properly initialized
-      try {
-        const adminClient = getSupabaseClient(true)
-        console.log("Admin client check:", adminClient ? "Available" : "Not available")
-        
-        // Check if we can make a simple query
-        void adminClient.from('users').select('count').limit(1).then(result => {
-          return Promise.resolve().then(() => {
-            console.log("Test query result:", result)
-          })
-        }).catch((queryError: unknown) => {
-          console.error("Test query error:", queryError)
-        })
-      } catch (clientError) {
-        console.error("Error checking admin client:", clientError)
-      }
-      
-      // Use a fallback ID if user is not authenticated
-      const fallbackId = user?.id || 'guest-user';
-      
-      // Save to localStorage as fallback
-      try {
-        localStorage.setItem(`user_profile_${fallbackId}`, JSON.stringify(profileData))
-        toast({
-          title: "Profile saved locally",
-          description: "Your profile has been saved to your device, but couldn't be fully updated in the database.",
-          variant: "default",
-        })
-      } catch (e) {
-        console.error("Error saving to localStorage:", e)
-        toast({
-          title: "Error",
-          description: "There was an error updating your profile and we couldn't save to local storage.",
-          variant: "destructive",
-        })
-      }
+      console.error('Error updating profile:', error);
+      toast({
+        title: 'Error updating profile',
+        description: error instanceof Error ? error.message : 'An unknown error occurred',
+        variant: 'destructive',
+      });
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
+
+    // Handle child data in children table
+    console.log('Preparing child data...');
+    // User ID validation already done above
+    const childData = {
+      user_id: user?.id || 'guest-user',
+      name: formData.childName,
+      birthdate: new Date(
+        new Date().setFullYear(
+          new Date().getFullYear() - (Number.parseInt(formData.childAge) || 0)
+        )
+      ).toISOString(),
+      interests: formData.interests,
+    };
+    console.log('Child data prepared:', childData);
+
+    // Check if child exists using direct query instead of RPC
+    console.log('Checking if child exists...');
+    const { data: existingChildren, error: fetchError } = await adminClient
+      .from('children')
+      .select('*')
+      .eq('user_id', user?.id || 'guest-user')
+      .limit(1);
+
+    if (fetchError) {
+      console.error('Error fetching child:', fetchError);
+      throw fetchError;
+    }
+    console.log('Child check complete, found:', existingChildren?.length || 0, 'children');
+
+    let childError = null;
+    if (existingChildren && existingChildren.length > 0) {
+      // Update existing child using direct query
+      console.log('Updating existing child...');
+      const { error } = await adminClient
+        .from('children')
+        .update({
+          name: childData.name,
+          birthdate: childData.birthdate,
+          interests: childData.interests,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existingChildren[0].id);
+
+      childError = error;
+      if (!error) {
+        console.log('Child updated successfully');
+      }
+    } else {
+      // Create new child using direct insert
+      console.log('Creating new child...');
+      const { error } = await adminClient.from('children').insert({
+        user_id: user?.id || 'guest-user',
+        name: childData.name,
+        birthdate: childData.birthdate,
+        interests: childData.interests,
+      });
+
+      childError = error;
+      if (!error) {
+        console.log('Child created successfully');
+      }
+    }
+
+    if (childError) {
+      console.error('Error updating child data:', childError);
+      throw childError;
+    }
+
+    // Assign profileData in try block
+    profileData = {
+      id: userId,
+      name: formData.name,
+      child_name: formData.childName,
+      child_age: Number.parseInt(formData.childAge) || 0,
+      interests: formData.interests,
+      preferred_time: formData.preferredTime,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Upsert profile data into profiles table
+    const profileUpsertPayload = {
+      id: user?.id || 'guest-user',
+      name: formData.name,
+      child_name: formData.childName,
+      child_age: Number.parseInt(formData.childAge) || 0,
+      interests: formData.interests,
+      preferred_time: formData.preferredTime,
+      updated_at: new Date().toISOString(),
+    };
+    console.log('Profile upsert payload:', profileUpsertPayload);
+    const { error: profileError, data: profileUpsertData } = await adminClient
+      .from('users')
+      .upsert(profileUpsertPayload, { onConflict: 'id' });
+    if (profileError) {
+      console.error('Error upserting profile:', profileError);
+      throw profileError;
+    } else {
+      console.log('Profile upserted successfully:', profileUpsertData);
+    }
+
+    // Success - show toast notification
+    toast({
+      title: 'Profile updated',
+      description: 'Your profile has been updated successfully.',
+    });
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    // Log more detailed error information
+    if (error instanceof Error) {
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+    }
+
+    // Check if the admin client is properly initialized
+    try {
+      const adminClient = getSupabaseClient(true);
+      console.log('Admin client check:', adminClient ? 'Available' : 'Not available');
+
+      // Check if we can make a simple query using an async IIFE
+      (async () => {
+        try {
+          const result = await adminClient.from('users').select('count').limit(1);
+          console.log('Test query result:', result);
+        } catch (queryError: unknown) {
+          console.error('Test query error:', queryError);
+        }
+      })(); // Invoke the async function immediately
+    } catch (clientError) {
+      console.error('Error checking admin client:', clientError);
+    }
+
+    // Use a fallback ID if user is not authenticated
+    const fallbackId = user?.id || 'guest-user';
+
+    // Save to localStorage as fallback
+    try {
+      localStorage.setItem(`user_profile_${fallbackId}`, JSON.stringify(profileData));
+      toast({
+        title: 'Profile saved locally',
+        description:
+          "Your profile has been saved to your device, but couldn't be fully updated in the database.",
+        variant: 'default',
+      });
+    } catch (e) {
+      console.error('Error saving to localStorage:', e);
+      toast({
+        title: 'Error',
+        description:
+          "There was an error updating your profile and we couldn't save to local storage.",
+        variant: 'destructive',
+      });
+    }
+  } finally {
+    setSaving(false);
   }
+};
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
       </div>
-    )
+    );
   }
 
   return (
@@ -474,7 +578,7 @@ export default function ProfilePage() {
                   <Input
                     id="name"
                     value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    onChange={e => setFormData({ ...formData, name: e.target.value })}
                     required
                   />
                 </div>
@@ -484,7 +588,7 @@ export default function ProfilePage() {
                   <Input
                     id="childName"
                     value={formData.childName}
-                    onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
+                    onChange={e => setFormData({ ...formData, childName: e.target.value })}
                     required
                   />
                 </div>
@@ -497,7 +601,7 @@ export default function ProfilePage() {
                     min="0"
                     max="18"
                     value={formData.childAge}
-                    onChange={(e) => setFormData({ ...formData, childAge: e.target.value })}
+                    onChange={e => setFormData({ ...formData, childAge: e.target.value })}
                     required
                   />
                 </div>
@@ -505,12 +609,14 @@ export default function ProfilePage() {
                 <div className="space-y-2">
                   <Label>Interests (Select all that apply)</Label>
                   <div className="grid grid-cols-2 gap-2">
-                    {interests.map((interest) => (
+                    {interests.map(interest => (
                       <div key={interest.id} className="flex items-center space-x-2">
                         <Checkbox
                           id={interest.id}
                           checked={formData.interests.includes(interest.id)}
-                          onCheckedChange={(checked) => handleInterestChange(interest.id, checked as boolean)}
+                          onCheckedChange={checked =>
+                            handleInterestChange(interest.id, checked as boolean)
+                          }
                         />
                         <Label htmlFor={interest.id} className="text-sm">
                           {interest.label}
@@ -524,13 +630,13 @@ export default function ProfilePage() {
                   <Label htmlFor="preferredTime">Preferred Time to Receive Prompts</Label>
                   <Select
                     value={formData.preferredTime}
-                    onValueChange={(value) => setFormData({ ...formData, preferredTime: value })}
+                    onValueChange={value => setFormData({ ...formData, preferredTime: value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select a time" />
                     </SelectTrigger>
                     <SelectContent>
-                      {timeOptions.map((option) => (
+                      {timeOptions.map(option => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
                         </SelectItem>
@@ -541,20 +647,20 @@ export default function ProfilePage() {
               </div>
 
               <div className="flex justify-between items-center">
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  onClick={runDiagnostics} 
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={runDiagnostics}
                   disabled={diagnosisRunning}
                   className="text-sm"
                 >
-                  {diagnosisRunning ? "Running Tests..." : "Test Database Connection"}
+                  {diagnosisRunning ? 'Running Tests...' : 'Test Database Connection'}
                 </Button>
                 <Button type="submit" disabled={saving}>
-                  {saving ? "Saving..." : "Save Changes"}
+                  {saving ? 'Saving...' : 'Save Changes'}
                 </Button>
               </div>
-              
+
               {diagnosisResults && (
                 <div className="mt-4 p-4 border rounded-md bg-slate-50">
                   <h3 className="font-medium mb-2">Database Diagnosis Results:</h3>
@@ -568,4 +674,5 @@ export default function ProfilePage() {
         </Card>
       </div>
     </div>
-  )
+  );
+}

@@ -1,8 +1,8 @@
 import { supabase, isUsingRealCredentials } from "./supabase"
 import type { Database } from "./supabase"
 
-type Profile = Database["public"]["Tables"]["profiles"]["Row"]
-type Prompt = Database["public"]["Tables"]["prompts"]["Row"]
+type Profile = Database["public"]["Tables"]["users"]["Row"]
+type Prompt = Database["public"]["Tables"]["user_prompts"]["Row"]
 
 // Sample prompt bank
 const promptBank = [
@@ -186,7 +186,7 @@ function generateAndCacheLocalPrompt(userId: string, promptText?: string): Promp
   // Cache in localStorage
   if (typeof window !== 'undefined') {
     try {
-      localStorage.setItem(`prompt_${userId}_${prompt.date}`, JSON.stringify(prompt));
+      localStorage.setItem(`prompt_${userId}_${prompt.scheduled_for}`, JSON.stringify(prompt));
     } catch (cacheError) {
       console.warn("Error caching local prompt to localStorage:", cacheError);
     }
@@ -203,10 +203,12 @@ function generateLocalPrompt(userId: string, promptText?: string): Prompt {
   return {
     id: "local-" + Date.now(),
     user_id: userId,
-    prompt_text: text,
+    prompt_id: "local-template",
     completed: false,
-    favorite: false,
-    date: today,
+    favorited: false,
+    scheduled_for: today,
+    delivered_at: new Date().toISOString(),
+    notes: "",
     created_at: new Date().toISOString(),
   } as Prompt;
 }
@@ -233,33 +235,46 @@ export async function markPromptFavorite(promptId: string, favorite: boolean): P
 
 // Get prompt history for a user
 export async function getPromptHistory(userId: string): Promise<Prompt[]> {
-  const { data, error } = await supabase
-    .from("prompts")
-    .select("*")
-    .eq("user_id", userId)
-    .order("date", { ascending: false })
+  try {
+    const { data, error } = await supabase
+      .from("user_prompts")
+      .select("*")
+      .eq("user_id", userId)
+      .order("scheduled_for", { ascending: false })
 
-  if (error) {
+    if (error) throw error
+    return data || []
+  } catch (error) {
     console.error("Error fetching prompt history:", error)
     return []
   }
-
-  return data || []
 }
 
 // Get favorite prompts for a user
 export async function getFavoritePrompts(userId: string): Promise<Prompt[]> {
   const { data, error } = await supabase
-    .from("prompts")
-    .select("*")
+    .from("user_prompts")
+    .select(`
+      *,
+      prompts (*)
+    `)
     .eq("user_id", userId)
-    .eq("favorite", true)
-    .order("date", { ascending: false })
+    .eq("favorited", true)
+    .order("created_at", { ascending: false })
 
   if (error) {
     console.error("Error fetching favorite prompts:", error)
     return []
   }
 
-  return data || []
+  // Map the joined data to match the expected Prompt type
+  return data.map(up => ({
+    ...up.prompts,
+    user_prompt_id: up.id,
+    favorited: up.favorited,
+    completed: up.completed,
+    scheduled_for: up.scheduled_for,
+    delivered_at: up.delivered_at,
+    notes: up.notes
+  })) || []
 }

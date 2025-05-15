@@ -21,24 +21,21 @@ if (typeof window !== 'undefined') { // Only log in browser environment
   }
 }
 
-// Use a more robust singleton pattern to avoid multiple instances
-let supabaseInstance: SupabaseClient | undefined
-let supabaseAdminInstance: SupabaseClient | undefined
+// Singleton instances
+let supabaseInstance: SupabaseClient<Database> | null = null
+let supabaseAdminInstance: SupabaseClient<Database> | null = null
 
 // For Next.js, we need to handle both client and server environments differently
-if (typeof window !== 'undefined') {
-  // We're in the browser, we can use a module-level variable
-  // This is safer than using global which can cause issues in Next.js
-}
+const isServer = typeof window === 'undefined'
 
 // Create standard client for regular operations
-export const getSupabase = () => {
-  if (typeof window === 'undefined') {
+export const getSupabase = (): SupabaseClient<Database> => {
+  if (isServer) {
     // Server-side - create a new instance each time
-    return createClient(supabaseUrl, supabaseAnonKey, {
+    return createClient<Database>(supabaseUrl, supabaseAnonKey, {
       auth: {
-        autoRefreshToken: true,
-        persistSession: true,
+        autoRefreshToken: false,
+        persistSession: false,
         detectSessionInUrl: false
       }
     })
@@ -46,7 +43,7 @@ export const getSupabase = () => {
   
   // Client-side - use singleton pattern
   if (!supabaseInstance) {
-    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
+    supabaseInstance = createClient<Database>(supabaseUrl, supabaseAnonKey, {
       auth: {
         autoRefreshToken: true,
         persistSession: true,
@@ -58,45 +55,45 @@ export const getSupabase = () => {
 }
 
 // Create admin client for operations that need to bypass RLS
-export const getSupabaseAdmin = () => {
+export const getSupabaseAdmin = (): SupabaseClient<Database> => {
   // Check for service role key in both formats
   const serviceKey = supabaseServiceKey || process.env.SUPABASE_SERVICE_ROLE_KEY || ''
   
   if (!serviceKey) {
-    console.error("Service role key is missing. Check environment variables.")
-    throw new Error("Service role key is required for admin operations")
+    console.error('Service role key is missing. Check environment variables.')
+    throw new Error('Service role key is required for admin operations')
   }
-  
-  // Log key availability for debugging (without exposing the actual key)
-  console.log("Service role key available:", Boolean(serviceKey))
-  
-  if (typeof window === 'undefined') {
-    // Server-side - create a new instance each time
-    return createClient(supabaseUrl, serviceKey, {
+
+  // If we already have an admin instance, return it
+  if (supabaseAdminInstance) {
+    return supabaseAdminInstance;
+  }
+
+  // Create a new admin instance
+  console.log('Creating new admin client instance...')
+  supabaseAdminInstance = createClient<Database>(
+    supabaseUrl, 
+    serviceKey, // Use the resolved service key
+    {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
         detectSessionInUrl: false
       }
-    })
-  }
+    }
+  )
   
-  // Client-side - use singleton pattern
-  if (!supabaseAdminInstance) {
-    supabaseAdminInstance = createClient(supabaseUrl, serviceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-        detectSessionInUrl: false
-      }
-    })
-  }
   return supabaseAdminInstance
 }
 
 // Helper function to get the appropriate client
-export const getSupabaseClient = (useAdmin: boolean = false) => {
-  return useAdmin ? getSupabaseAdmin() : getSupabase()
+export const getSupabaseClient = (useAdmin: boolean = false): SupabaseClient<Database> => {
+  try {
+    return useAdmin ? getSupabaseAdmin() : getSupabase()
+  } catch (error) {
+    console.error('Error getting Supabase client:', error)
+    throw error
+  }
 }
 
 // Export the default client instance for backward compatibility
