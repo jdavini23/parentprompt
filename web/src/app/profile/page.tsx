@@ -255,293 +255,191 @@ export default function ProfilePage() {
     // Use a fallback ID if user is not authenticated
     const userId = user?.id || 'guest-user';
     console.log('Using user ID:', userId);
-    console.log('User authenticated, proceeding with update');
 
-    // Declare profileData at the top level of the function
-    let profileData: any = {
+    // Prepare profile data for storage
+    const profileData = {
       id: userId,
-      name: '',
-      child_name: '',
-      child_age: 0,
-      interests: [],
-      preferred_time: 'morning',
+      name: formData.name,
+      child_name: formData.childName,
+      child_age: Number.parseInt(formData.childAge) || 0,
+      interests: formData.interests,
+      preferred_time: formData.preferredTime,
       updated_at: new Date().toISOString(),
     };
 
     try {
-
-    // Save to localStorage as fallback
-    try {
-      localStorage.setItem(`user_profile_${userId}`, JSON.stringify(profileData));
-      console.log('Saved to localStorage successfully');
-    } catch (e) {
-      console.error('Error saving to localStorage:', e);
-    }
-
-    // Use admin client for database operations to bypass RLS
-    console.log('Getting Supabase admin client...');
-    const adminClient = getSupabaseClient(true);
-    console.log('Admin client:', adminClient);
-    if (!adminClient) {
-      console.error('Admin client not available');
-      throw new Error('Admin client not available');
-    }
-    console.log('Admin client obtained successfully');
-
-    // Log environment variable for service role key (masking for security)
-    const srk = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
-    if (srk) {
-      console.log('Service role key present, starts with:', srk.slice(0, 6) + '...');
-    } else {
-      console.error('Service role key is missing!');
-    }
-
-    // Proceed with database operations
-    console.log('Proceeding with database operations');
-
-    // Check if service role key is available
-    if (!process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('Missing Supabase service role key');
-      throw new Error('Missing Supabase service role key');
-    }
-
-    try {
-      // Get admin client for the update
-      const adminClient = getSupabaseClient(true);
+      // Always save to localStorage first as a reliable fallback
+      try {
+        localStorage.setItem(`user_profile_${userId}`, JSON.stringify(profileData));
+        console.log('Saved to localStorage successfully');
+      } catch (e) {
+        console.error('Error saving to localStorage:', e);
+        toast({
+          title: 'Error',
+          description: 'Could not save your profile locally.',
+          variant: 'destructive',
+        });
+        setSaving(false);
+        return;
+      }
       
-      if (!user?.id) {
-        console.error('User is not authenticated, cannot update database');
-        throw new Error('User is not authenticated');
-      }
+      // Attempt to use database if user is authenticated
+      if (user?.id) {
+        try {
+          // Get admin client for database operations
+        console.log('Getting Supabase admin client...');
+        const adminClient = getSupabaseClient(true);
+        
+        if (!adminClient) {
+          throw new Error('Admin client not available');
+        }
 
-      // Split full name into first and last name
-      const [firstName, ...lastNameParts] = formData.name.split(' ');
-      const lastName = lastNameParts.join(' ');
-      const now = new Date().toISOString();
+        // Split full name into first and last name
+        const [firstName, ...lastNameParts] = formData.name.split(' ');
+        const lastName = lastNameParts.join(' ');
+        
+        // Try to update user data
+        try {
+          console.log('Updating user data in users table...');
+          const { error: userUpdateError } = await adminClient
+            .from('users')
+            .upsert(
+              {
+                id: user.id,
+                first_name: firstName || '',
+                last_name: lastName || '',
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: 'id' }
+            );
 
-      // Update user data in the users table
-      console.log('Updating user data in users table...');
-      const { data: userUpdateData, error: userUpdateError } = await adminClient
-        .from('users')
-        .upsert(
-          {
-            id: user.id,
-            first_name: firstName || '',
-            last_name: lastName || '',
-            updated_at: now,
-          },
-          {
-            onConflict: 'id',
-            count: 'exact',
+          if (userUpdateError) {
+            console.error('Error updating user data:', userUpdateError);
+          } else {
+            console.log('Successfully updated user data');
           }
-        )
-        .select();
+        } catch (userError) {
+          console.error('Exception updating user:', userError);
+          // Continue with child updates even if user update fails
+        }
 
-      if (userUpdateError) {
-        console.error('Error updating user data:', userUpdateError);
-        // Continue with child updates even if user update fails
-      } else {
-        console.log('Successfully updated user data:', userUpdateData);
-      }
+        // Try to update child data
+        if (formData.childName) {
+          try {
+            console.log('Updating child data in children table...');
+            
+            // First, make sure the user exists in the users table
+            // This is necessary because children has a foreign key constraint to users
+            try {
+              // Check if user exists in users table
+              const { data: userExists } = await adminClient
+                .from('users')
+                .select('id')
+                .eq('id', user.id)
+                .maybeSingle();
+              
+              // If user doesn't exist, create the user first
+              if (!userExists) {
+                console.log('User does not exist in users table, creating user first...');
+                const [firstName, ...lastNameParts] = formData.name.split(' ');
+                const lastName = lastNameParts.join(' ');
+                
+                await adminClient
+                  .from('users')
+                  .insert({
+                    id: user.id,
+                    email: user.email || '',
+                    first_name: firstName || '',
+                    last_name: lastName || '',
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                  });
+                console.log('User created successfully');
+              }
+            } catch (userError) {
+              console.error('Error checking/creating user:', userError);
+              // Continue anyway - we'll catch any errors in the child update
+            }
+            
+            // Now check if child exists
+            const { data: existingChildren } = await adminClient
+              .from('children')
+              .select('id')
+              .eq('user_id', user.id)
+              .maybeSingle();
 
-      // Only update child data if child name is provided
-      if (formData.childName) {
-        console.log('Updating child data in children table...');
-        const { data: childUpdateData, error: childUpdateError } = await adminClient
-          .from('children')
-          .upsert(
-            {
+            const childData = {
               user_id: user.id,
               name: formData.childName,
               birthdate: formData.childAge ? calculateBirthdate(parseInt(formData.childAge, 10)) : null,
               interests: formData.interests,
-              updated_at: now,
-            },
-            {
-              onConflict: 'user_id',
-              count: 'exact',
+              updated_at: new Date().toISOString(),
+            };
+
+            let childError = null;
+            
+            if (existingChildren?.id) {
+              // Update existing child
+              console.log('Updating existing child with ID:', existingChildren.id);
+              const { error } = await adminClient
+                .from('children')
+                .update(childData)
+                .eq('id', existingChildren.id);
+              childError = error;
+            } else {
+              // Create new child
+              console.log('Creating new child for user ID:', user.id);
+              const { error } = await adminClient
+                .from('children')
+                .insert(childData);
+              childError = error;
             }
-          )
-          .select();
 
-        if (childUpdateError) {
-          console.error('Error updating child data:', childUpdateError);
-        } else {
-          console.log('Successfully updated child data:', childUpdateData);
+            if (childError) {
+              console.error('Error updating child data:', childError);
+              // Store in localStorage as fallback
+              localStorage.setItem(`child_data_${user.id}`, JSON.stringify(childData));
+              console.log('Child data saved to localStorage as fallback');
+            } else {
+              console.log('Successfully updated child data');
+            }
+          } catch (childError) {
+            console.error('Exception updating child:', childError);
+          }
         }
-      }
-
-      // Update local state and show success message
-      toast({
-        title: 'Profile updated successfully',
-        description: 'Your profile has been updated.',
-      });
-
-      // Refresh the profile data
-      await fetchProfile();
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      toast({
-        title: 'Error updating profile',
-        description: error instanceof Error ? error.message : 'An unknown error occurred',
-        variant: 'destructive',
-      });
-    } finally {
-      setSaving(false);
-    }
-
-    // Handle child data in children table
-    console.log('Preparing child data...');
-    // User ID validation already done above
-    const childData = {
-      user_id: user?.id || 'guest-user',
-      name: formData.childName,
-      birthdate: new Date(
-        new Date().setFullYear(
-          new Date().getFullYear() - (Number.parseInt(formData.childAge) || 0)
-        )
-      ).toISOString(),
-      interests: formData.interests,
-    };
-    console.log('Child data prepared:', childData);
-
-    // Check if child exists using direct query instead of RPC
-    console.log('Checking if child exists...');
-    const { data: existingChildren, error: fetchError } = await adminClient
-      .from('children')
-      .select('*')
-      .eq('user_id', user?.id || 'guest-user')
-      .limit(1);
-
-    if (fetchError) {
-      console.error('Error fetching child:', fetchError);
-      throw fetchError;
-    }
-    console.log('Child check complete, found:', existingChildren?.length || 0, 'children');
-
-    let childError = null;
-    if (existingChildren && existingChildren.length > 0) {
-      // Update existing child using direct query
-      console.log('Updating existing child...');
-      const { error } = await adminClient
-        .from('children')
-        .update({
-          name: childData.name,
-          birthdate: childData.birthdate,
-          interests: childData.interests,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', existingChildren[0].id);
-
-      childError = error;
-      if (!error) {
-        console.log('Child updated successfully');
+        
+        // Show success message for database update attempt
+        toast({
+          title: 'Profile updated',
+          description: 'Your profile has been updated successfully.',
+        });
+        
+        // Refresh the profile data
+        await fetchProfile();
+      } catch (dbError) {
+        console.error('Database operation error:', dbError);
+        // Show message that we saved locally but had database issues
+        toast({
+          title: 'Profile saved locally',
+          description: "Your profile has been saved to your device, but couldn't be fully updated in the database.",
+          variant: 'default',
+        });
       }
     } else {
-      // Create new child using direct insert
-      console.log('Creating new child...');
-      const { error } = await adminClient.from('children').insert({
-        user_id: user?.id || 'guest-user',
-        name: childData.name,
-        birthdate: childData.birthdate,
-        interests: childData.interests,
-      });
-
-      childError = error;
-      if (!error) {
-        console.log('Child created successfully');
-      }
-    }
-
-    if (childError) {
-      console.error('Error updating child data:', childError);
-      throw childError;
-    }
-
-    // Assign profileData in try block
-    profileData = {
-      id: userId,
-      name: formData.name,
-      child_name: formData.childName,
-      child_age: Number.parseInt(formData.childAge) || 0,
-      interests: formData.interests,
-      preferred_time: formData.preferredTime,
-      updated_at: new Date().toISOString(),
-    };
-
-    // Upsert profile data into profiles table
-    const profileUpsertPayload = {
-      id: user?.id || 'guest-user',
-      name: formData.name,
-      child_name: formData.childName,
-      child_age: Number.parseInt(formData.childAge) || 0,
-      interests: formData.interests,
-      preferred_time: formData.preferredTime,
-      updated_at: new Date().toISOString(),
-    };
-    console.log('Profile upsert payload:', profileUpsertPayload);
-    const { error: profileError, data: profileUpsertData } = await adminClient
-      .from('users')
-      .upsert(profileUpsertPayload, { onConflict: 'id' });
-    if (profileError) {
-      console.error('Error upserting profile:', profileError);
-      throw profileError;
-    } else {
-      console.log('Profile upserted successfully:', profileUpsertData);
-    }
-
-    // Success - show toast notification
-    toast({
-      title: 'Profile updated',
-      description: 'Your profile has been updated successfully.',
-    });
-  } catch (error) {
-    console.error('Error updating profile:', error);
-    // Log more detailed error information
-    if (error instanceof Error) {
-      console.error('Error message:', error.message);
-      console.error('Error stack:', error.stack);
-    }
-
-    // Check if the admin client is properly initialized
-    try {
-      const adminClient = getSupabaseClient(true);
-      console.log('Admin client check:', adminClient ? 'Available' : 'Not available');
-
-      // Check if we can make a simple query using an async IIFE
-      (async () => {
-        try {
-          const result = await adminClient.from('users').select('count').limit(1);
-          console.log('Test query result:', result);
-        } catch (queryError: unknown) {
-          console.error('Test query error:', queryError);
-        }
-      })(); // Invoke the async function immediately
-    } catch (clientError) {
-      console.error('Error checking admin client:', clientError);
-    }
-
-    // Use a fallback ID if user is not authenticated
-    const fallbackId = user?.id || 'guest-user';
-
-    // Save to localStorage as fallback
-    try {
-      localStorage.setItem(`user_profile_${fallbackId}`, JSON.stringify(profileData));
+      // User not authenticated, show success for local storage only
       toast({
         title: 'Profile saved locally',
-        description:
-          "Your profile has been saved to your device, but couldn't be fully updated in the database.",
+        description: 'Your profile has been saved to your device.',
         variant: 'default',
       });
-    } catch (e) {
-      console.error('Error saving to localStorage:', e);
-      toast({
-        title: 'Error',
-        description:
-          "There was an error updating your profile and we couldn't save to local storage.",
-        variant: 'destructive',
-      });
     }
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    toast({
+      title: 'Error',
+      description: error instanceof Error ? error.message : 'An unknown error occurred',
+      variant: 'destructive',
+    });
   } finally {
     setSaving(false);
   }
