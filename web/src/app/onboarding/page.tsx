@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -30,7 +30,7 @@ const timeOptions = [
 ]
 
 export default function OnboardingPage() {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
   const router = useRouter()
   const [step, setStep] = useState(1)
   const [formData, setFormData] = useState({
@@ -57,13 +57,27 @@ export default function OnboardingPage() {
     }
   }
 
+  // Redirect to login if not authenticated after loading completes
+  useEffect(() => {
+    if (!loading && !user) {
+      console.log("User not authenticated, redirecting to login")
+      router.push("/login?redirect=/onboarding")
+    }
+  }, [user, loading, router])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setError(null)
 
     try {
-      if (!user) throw new Error("User not authenticated")
+      // Double-check authentication before proceeding
+      if (!user) {
+        console.error("User not authenticated during form submission")
+        setError("You must be logged in to complete onboarding")
+        router.push("/login?redirect=/onboarding")
+        return
+      }
 
       // Save profile data to Supabase
       const { error } = await supabase.from("profiles").insert({
@@ -93,6 +107,36 @@ export default function OnboardingPage() {
 
   const prevStep = () => {
     setStep(step - 1)
+  }
+
+  // Show loading state while checking authentication
+  if (loading) {
+    return (
+      <div className="container flex items-center justify-center min-h-screen py-12">
+        <Card className="w-full max-w-md text-center p-8">
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold">Loading...</h2>
+            <p>Please wait while we prepare your onboarding experience.</p>
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
+  // If not loading and no user, the useEffect will handle redirect
+  // This is just a fallback in case the redirect hasn't happened yet
+  if (!user) {
+    return (
+      <div className="container flex items-center justify-center min-h-screen py-12">
+        <Card className="w-full max-w-md text-center p-8">
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold">Authentication Required</h2>
+            <p>You need to be logged in to complete the onboarding process.</p>
+            <Button onClick={() => router.push("/login?redirect=/onboarding")}>Go to Login</Button>
+          </div>
+        </Card>
+      </div>
+    )
   }
 
   return (

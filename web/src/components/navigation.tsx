@@ -9,7 +9,7 @@ import { useState } from "react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
 export function Navigation() {
-  const { signOut } = useAuth()
+  const { signOut, user } = useAuth()
   const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
 
@@ -66,15 +66,28 @@ export function Navigation() {
                     </a>
                   </div>
                 </div>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    signOut()
-                    setIsOpen(false)
-                  }}
-                >
-                  Sign Out
-                </Button>
+                {user && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      signOut()
+                      setIsOpen(false)
+                    }}
+                  >
+                    Sign Out
+                  </Button>
+                )}
+                {!user && (
+                  <Link href="/signin" passHref legacyBehavior>
+                    <Button
+                      variant="default"
+                      className="w-full"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      Sign In
+                    </Button>
+                  </Link>
+                )}
               </div>
             </SheetContent>
           </Sheet>
@@ -120,9 +133,18 @@ export function Navigation() {
             </div>
           </nav>
           <div className="px-3 mt-auto">
-            <Button variant="outline" className="w-full" onClick={() => signOut()}>
-              Sign Out
-            </Button>
+            {user && (
+              <Button variant="outline" className="w-full" onClick={() => signOut()}>
+                Sign Out
+              </Button>
+            )}
+            {!user && (
+              <Link href="/signin" passHref legacyBehavior>
+                <Button variant="default" className="w-full">
+                  Sign In
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
       </div>

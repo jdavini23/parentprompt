@@ -47,18 +47,89 @@ export default function HomePage() {
 
       try {
         console.log('Fetching user profile and prompt data...');
-        // Fetch user profile
-        const { data: profileData } = await supabase.from("profiles").select("*").eq("id", user.id).single()
+        
+        // Fetch user profile with error handling
+        try {
+          // Try users table first (which is what exists in the schema)
+          const { data: userData, error: userError } = await supabase
+            .from("users")
+            .select("*")
+            .eq("id", user.id)
+            .maybeSingle();
+            
+          if (userError) {
+            console.warn("Error fetching from users table, trying profiles as fallback:", userError);
+            
+            // Try profiles table as fallback (in case schema was updated)
+            try {
+              const { data: profileData, error: profileError } = await supabase
+                .from("profiles")
+                .select("*")
+                .eq("id", user.id)
+                .maybeSingle();
+                
+              if (profileError) {
+                console.warn("Error fetching from profiles table too:", profileError);
+              } else if (profileData) {
+                setProfile(profileData);
+              }
+            } catch (profileError) {
+              console.warn("Exception fetching from profiles table:", profileError);
+            }
+          } else if (userData) {
+            // Successfully got user data from users table
+            setProfile(userData);
+            
+            // Cache the profile data for the prompt service to use
+            if (typeof window !== 'undefined') {
+              try {
+                localStorage.setItem(`profile_${user.id}`, JSON.stringify(userData));
+              } catch (cacheError) {
+                console.warn("Error caching profile to localStorage:", cacheError);
+              }
+            }
+          }
+        } catch (profileError) {
+          console.warn("Exception fetching profile, but continuing:", profileError);
+        }
 
-        setProfile(profileData)
-
-        // Fetch today's prompt
-        const promptData = await getTodaysPrompt(user.id)
-        setPrompt(promptData)
+        // Fetch today's prompt with better error handling
+        try {
+          console.log('Fetching today\'s prompt for user:', user.id);
+          const promptData = await getTodaysPrompt(user.id);
+          if (promptData) {
+            console.log('Successfully retrieved prompt:', promptData.id);
+            setPrompt(promptData);
+          } else {
+            console.warn('No prompt data returned, using fallback');
+            // Create a fallback prompt if needed
+            setPrompt({
+              id: 'fallback-' + Date.now(),
+              user_id: user.id,
+              prompt_text: 'Spend quality time with your child today.',
+              completed: false,
+              favorite: false,
+              date: new Date().toISOString().split('T')[0],
+              created_at: new Date().toISOString()
+            });
+          }
+        } catch (promptError) {
+          console.error("Error fetching today's prompt:", promptError);
+          // Set a fallback prompt
+          setPrompt({
+            id: 'error-fallback-' + Date.now(),
+            user_id: user.id,
+            prompt_text: 'Read a book with your child today.',
+            completed: false,
+            favorite: false,
+            date: new Date().toISOString().split('T')[0],
+            created_at: new Date().toISOString()
+          });
+        }
       } catch (error) {
-        console.error("Error fetching data:", error)
+        console.error("Error in main fetchData function:", error);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
     }
 

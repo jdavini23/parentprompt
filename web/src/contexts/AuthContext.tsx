@@ -119,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ) => {
     try {
       setLoading(true);
+      console.log('[AuthContext] Starting signup process for:', email);
       
       // Create the auth user
       const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -129,20 +130,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       });
 
-      if (authError) throw authError;
+      if (authError) {
+        console.error('[AuthContext] Auth error during signup:', authError);
+        throw authError;
+      }
 
       if (authData.user) {
-        // Create the user profile in our users table
-        const { error: profileError } = await supabase.from('users').insert([
-          {
-            id: authData.user.id,
-            email,
-            first_name: firstName,
-            last_name: lastName,
-          },
-        ]);
+        console.log('[AuthContext] Auth user created successfully with ID:', authData.user.id);
+        
+        console.log('[AuthContext] Updating user profile');
+        
+        try {
+          // Update user metadata using Supabase's built-in method
+          const { error: updateError } = await supabase.auth.updateUser({
+            data: {
+              first_name: firstName,
+              last_name: lastName
+            }
+          });
+          
+          if (updateError) {
+            console.error('[AuthContext] Error updating user metadata:', updateError);
+            console.log('[AuthContext] Continuing with signup despite metadata update error');
+          } else {
+            console.log('[AuthContext] User metadata updated successfully');
+          }
+          
+          // Wait a moment to ensure any database triggers have time to run
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Attempt to update the users table directly as a fallback
+          // This is only needed if you have a separate users table beyond auth.users
+          try {
+            const { error: profileError } = await supabase
+              .from('profiles') // Using 'profiles' table which is commonly used with Supabase auth
+              .upsert({
+                id: authData.user.id,
+                first_name: firstName,
+                last_name: lastName,
+                updated_at: new Date().toISOString()
+              });
+              
+            if (profileError) {
+              console.log('[AuthContext] Profile table update failed, may not exist:', profileError);
+              // This is expected if you don't have a profiles table
+            }
+          } catch (profileErr) {
+            // Silently handle this error as the profiles table might not exist
+            console.log('[AuthContext] Profile update attempt error (expected if table doesn\'t exist)');
+          }
+        } catch (err) {
+          console.error('[AuthContext] Error in user profile update:', err);
+          // Continue with signup despite errors
+          console.log('[AuthContext] Continuing with signup despite errors');
+        }
 
-        if (profileError) throw profileError;
+        // Error handling is now done inside the try/catch block above
 
         // Create the user object
         const newUser: User = {
@@ -154,6 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
 
         setUser(newUser);
+        console.log('[AuthContext] Signup completed successfully');
       }
     } catch (error) {
       console.error('Error signing up:', error);

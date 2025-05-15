@@ -31,6 +31,27 @@ const timeOptions = [
 ]
 
 export default function ProfilePage() {
+  // Helper function to use default profile when no data is available
+  const useDefaultProfile = () => {
+    // If no localStorage data, use basic user info from auth context
+    const defaultProfile = {
+      id: user?.id || 'unknown',
+      name: user?.firstName || '',
+      child_name: '',
+      child_age: 0,
+      interests: [],
+      preferred_time: 'morning'
+    }
+    
+    setProfile(defaultProfile)
+    setFormData({
+      name: user?.firstName || '',
+      childName: '',
+      childAge: '',
+      interests: [],
+      preferredTime: 'morning',
+    })
+  }
   const { user } = useAuth()
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -51,18 +72,66 @@ export default function ProfilePage() {
       }
 
       try {
-        const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).single()
+        // Try to fetch from users table (correct table according to schema)
+        // Use maybeSingle() instead of single() to handle the case when no rows are found
+        const { data, error } = await supabase.from("users").select("*").eq("id", user.id).maybeSingle()
 
-        if (error) throw error
-
-        setProfile(data)
-        setFormData({
-          name: data.name,
-          childName: data.child_name,
-          childAge: data.child_age.toString(),
-          interests: data.interests,
-          preferredTime: data.preferred_time,
-        })
+        if (error) {
+          console.error("Error fetching profile:", error)
+        
+          // Fallback to localStorage if available
+          const localProfile = localStorage.getItem(`user_profile_${user.id}`)
+          if (localProfile) {
+            try {
+              const parsedProfile = JSON.parse(localProfile)
+              setProfile(parsedProfile)
+              setFormData({
+                name: parsedProfile.name || user.firstName || "",
+                childName: parsedProfile.child_name || "",
+                childAge: parsedProfile.child_age?.toString() || "",
+                interests: parsedProfile.interests || [],
+                preferredTime: parsedProfile.preferred_time || "morning",
+              })
+            } catch (e) {
+              console.error("Error parsing local profile:", e)
+              useDefaultProfile()
+            }
+          } else {
+            useDefaultProfile()
+          }
+        } else if (data) { // No Supabase error, and data is truthy (record found in 'users' table)
+          setProfile(data);
+          setFormData({
+            name: data.first_name || '', // Use first_name from 'users' table.
+            // Fields below are not strictly in 'users' table as per memory, provide fallbacks
+            childName: data.child_name || '', 
+            childAge: data.child_age != null ? data.child_age.toString() : '', 
+            interests: data.interests || [], 
+            preferredTime: data.preferred_time || 'morning', 
+          });
+        } else { // No Supabase error, and data is null (no record in 'users' table for this user.id)
+          console.log(`No profile found in 'users' table for user ID: ${user?.id}. Checking localStorage.`);
+          const localProfile = localStorage.getItem(`user_profile_${user?.id}`);
+          if (localProfile) {
+            try {
+              const parsedProfile = JSON.parse(localProfile);
+              setProfile(parsedProfile); // localStorage data might have all fields
+              setFormData({
+                name: parsedProfile.name || (user && user.firstName) || '', // Prefer localStorage name, then auth user.firstName
+                childName: parsedProfile.child_name || '',
+                childAge: parsedProfile.child_age?.toString() || '',
+                interests: parsedProfile.interests || [],
+                preferredTime: parsedProfile.preferred_time || 'morning',
+              });
+            } catch (e) {
+              console.error("Error parsing local profile:", e);
+              useDefaultProfile(); // Fallback to default profile settings
+            }
+          } else {
+            // No DB record, no localStorage record
+            useDefaultProfile(); // Fallback to default profile settings
+          }
+        }
       } catch (error) {
         console.error("Error fetching profile:", error)
       } finally {
@@ -94,23 +163,50 @@ export default function ProfilePage() {
     try {
       if (!user) throw new Error("User not authenticated")
 
+      // Save to localStorage as a fallback
+      const profileData = {
+        id: user.id,
+        name: formData.name,
+        child_name: formData.childName,
+        child_age: Number.parseInt(formData.childAge) || 0,
+        interests: formData.interests,
+        preferred_time: formData.preferredTime,
+        updated_at: new Date().toISOString()
+      }
+      
+      try {
+        localStorage.setItem(`user_profile_${user.id}`, JSON.stringify(profileData))
+      } catch (e) {
+        console.error("Error saving to localStorage:", e)
+      }
+      
+      // Try to upsert in Supabase users table (create if not exists, update if exists)
       const { error } = await supabase
-        .from("profiles")
-        .update({
+        .from("users")
+        .upsert({
+          id: user.id, // Include ID for upsert
           name: formData.name,
           child_name: formData.childName,
-          child_age: Number.parseInt(formData.childAge),
+          child_age: Number.parseInt(formData.childAge) || 0,
           interests: formData.interests,
           preferred_time: formData.preferredTime,
+          updated_at: new Date().toISOString()
         })
-        .eq("id", user.id)
 
-      if (error) throw error
-
-      toast({
-        title: "Profile updated",
-        description: "Your profile has been updated successfully.",
-      })
+      if (error) {
+        console.error("Error updating profile:", error)
+        
+        toast({
+          title: "Profile saved locally",
+          description: "Your profile has been saved to your device, but couldn't be updated in the database.",
+          variant: "default",
+        })
+      } else {
+        toast({
+          title: "Profile updated",
+          description: "Your profile has been updated successfully.",
+        })
+      }
     } catch (error) {
       console.error("Error updating profile:", error)
       toast({

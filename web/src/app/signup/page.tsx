@@ -91,6 +91,7 @@ export default function SignupPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                autoComplete="new-password"
               />
             </div>
             <div className="space-y-2">
@@ -101,6 +102,7 @@ export default function SignupPage() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
+                autoComplete="new-password"
               />
             </div>
             {error && <p className="text-sm font-medium text-red-500">{error}</p>}
