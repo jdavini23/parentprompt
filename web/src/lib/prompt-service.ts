@@ -213,10 +213,10 @@ function generateLocalPrompt(userId: string, promptText?: string): Prompt {
 
 // Mark a prompt as completed
 export async function markPromptCompleted(promptId: string, completed: boolean): Promise<void> {
-  const { error } = await supabase.from("prompts").update({ completed }).eq("id", promptId)
+  const { error } = await supabase.from("user_prompts").update({ completed }).eq("id", promptId)
 
   if (error) {
-    console.error("Error marking prompt as completed:", error)
+    console.error("Error marking user_prompt as completed:", error)
     throw error
   }
 }

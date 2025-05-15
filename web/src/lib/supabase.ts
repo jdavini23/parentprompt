@@ -1,94 +1,235 @@
-import { createClient } from "@supabase/supabase-js"
+import { createClient, SupabaseClient } from "@supabase/supabase-js"
 
 // Get environment variables with fallbacks
-let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
-let supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || ""
 
-// Log the environment variables for debugging (redacting the key)
-console.log("Supabase URL:", supabaseUrl)
-console.log("Supabase Key:", supabaseAnonKey ? "[REDACTED]" : "Not set")
-
-// If URL is not set or invalid, use a placeholder that won't throw URL construction errors
-if (!supabaseUrl || !supabaseUrl.startsWith("http")) {
-  console.warn("Invalid or missing Supabase URL. Using placeholder URL for development.")
-  // Use a valid URL format as a placeholder
-  supabaseUrl = "https://placeholder-project.supabase.co"
+// Validate required environment variables
+if (typeof window !== 'undefined') { // Only log in browser environment
+  // Log the environment variables for debugging (redacting the keys)
+  console.log("Supabase URL:", supabaseUrl)
+  console.log("Supabase Anon Key:", supabaseAnonKey ? "[REDACTED]" : "Not set")
+  console.log("Supabase Service Role Key:", supabaseServiceKey ? "[SET]" : "Not set")
+  
+  if (!supabaseUrl || !supabaseUrl.startsWith("http")) {
+    console.error("Invalid or missing NEXT_PUBLIC_SUPABASE_URL")
+  }
+  
+  if (!supabaseAnonKey) {
+    console.error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY")
+  }
 }
 
-// If key is not set, use a placeholder
-if (!supabaseAnonKey) {
-  console.warn("Missing Supabase Anon Key. Using placeholder key for development.")
-  supabaseAnonKey = "placeholder-key"
+// Use a more robust singleton pattern to avoid multiple instances
+let supabaseInstance: SupabaseClient | undefined
+let supabaseAdminInstance: SupabaseClient | undefined
+
+// For Next.js, we need to handle both client and server environments differently
+if (typeof window !== 'undefined') {
+  // We're in the browser, we can use a module-level variable
+  // This is safer than using global which can cause issues in Next.js
 }
 
-// Create the Supabase client with our values (real or placeholder)
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// Create standard client for regular operations
+export const getSupabase = () => {
+  if (typeof window === 'undefined') {
+    // Server-side - create a new instance each time
+    return createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: false
+      }
+    })
+  }
+  
+  // Client-side - use singleton pattern
+  if (!supabaseInstance) {
+    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: false
+      }
+    })
+  }
+  return supabaseInstance
+}
+
+// Create admin client for operations that need to bypass RLS
+export const getSupabaseAdmin = () => {
+  // Check for service role key in both formats
+  const serviceKey = supabaseServiceKey || process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  
+  if (!serviceKey) {
+    console.error("Service role key is missing. Check environment variables.")
+    throw new Error("Service role key is required for admin operations")
+  }
+  
+  // Log key availability for debugging (without exposing the actual key)
+  console.log("Service role key available:", Boolean(serviceKey))
+  
+  if (typeof window === 'undefined') {
+    // Server-side - create a new instance each time
+    return createClient(supabaseUrl, serviceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false
+      }
+    })
+  }
+  
+  // Client-side - use singleton pattern
+  if (!supabaseAdminInstance) {
+    supabaseAdminInstance = createClient(supabaseUrl, serviceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false
+      }
+    })
+  }
+  return supabaseAdminInstance
+}
+
+// Helper function to get the appropriate client
+export const getSupabaseClient = (useAdmin: boolean = false) => {
+  return useAdmin ? getSupabaseAdmin() : getSupabase()
+}
+
+// Export the default client instance for backward compatibility
+export const supabase = getSupabase()
 
 // Add a flag to check if we're using real credentials
-export const isUsingRealCredentials =
-  process.env.NEXT_PUBLIC_SUPABASE_URL &&
-  process.env.NEXT_PUBLIC_SUPABASE_URL.startsWith("http") &&
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+export const isUsingRealCredentials = Boolean(
+  supabaseUrl && 
+  supabaseUrl.startsWith("http") && 
+  supabaseAnonKey
+)
 
+// Update the Database type to match the actual schema
 export type Database = {
   public: {
     Tables: {
-      profiles: {
+      users: {
         Row: {
           id: string
+          email: string
+          first_name: string
+          last_name: string
+          phone_number: string
           created_at: string
-          name: string
-          child_name: string
-          child_age: number
-          interests: string[]
-          preferred_time: string
+          updated_at: string
         }
         Insert: {
           id: string
+          email: string
+          first_name: string
+          last_name: string
+          phone_number?: string
           created_at?: string
-          name: string
-          child_name: string
-          child_age: number
-          interests: string[]
-          preferred_time: string
+          updated_at?: string
         }
         Update: {
           id?: string
+          email?: string
+          first_name?: string
+          last_name?: string
+          phone_number?: string
           created_at?: string
-          name?: string
-          child_name?: string
-          child_age?: number
+          updated_at?: string
+        }
+      }
+      children: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          birthdate: string
+          interests: string[]
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          birthdate?: string
           interests?: string[]
-          preferred_time?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          birthdate?: string
+          interests?: string[]
+          created_at?: string
+          updated_at?: string
         }
       }
       prompts: {
         Row: {
           id: string
+          content: string
+          type: string
+          age_range: string
+          tags: string[]
           created_at: string
-          user_id: string
-          prompt_text: string
-          completed: boolean
-          favorite: boolean
-          date: string
         }
         Insert: {
           id?: string
+          content: string
+          type: string
+          age_range: string
+          tags?: string[]
           created_at?: string
-          user_id: string
-          prompt_text: string
-          completed?: boolean
-          favorite?: boolean
-          date: string
         }
         Update: {
           id?: string
+          content?: string
+          type?: string
+          age_range?: string
+          tags?: string[]
           created_at?: string
-          user_id?: string
-          prompt_text?: string
+        }
+      }
+      user_prompts: {
+        Row: {
+          id: string
+          user_id: string
+          prompt_id: string
+          completed: boolean
+          favorited: boolean
+          scheduled_for: string
+          delivered_at: string
+          notes: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          prompt_id: string
           completed?: boolean
-          favorite?: boolean
-          date?: string
+          favorited?: boolean
+          scheduled_for?: string
+          delivered_at?: string
+          notes?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          prompt_id?: string
+          completed?: boolean
+          favorited?: boolean
+          scheduled_for?: string
+          delivered_at?: string
+          notes?: string
+          created_at?: string
         }
       }
     }

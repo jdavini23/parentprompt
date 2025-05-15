@@ -32,8 +32,10 @@ export function Navigation() {
                 pathname === route.href ? "text-primary" : "text-muted-foreground hover:text-primary"
               }`}
             >
-              {route.icon}
-              <span className="mt-1 text-xs">{route.label}</span>
+              <>
+                {route.icon}
+                <span className="mt-1 text-xs">{route.label}</span>
+              </>
             </Link>
           ))}
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
@@ -78,7 +80,7 @@ export function Navigation() {
                   </Button>
                 )}
                 {!user && (
-                  <Link href="/signin" passHref legacyBehavior>
+                  <Link href="/login" passHref>
                     <Button
                       variant="default"
                       className="w-full"
@@ -93,7 +95,6 @@ export function Navigation() {
           </Sheet>
         </div>
       </div>
-
       {/* Desktop Navigation */}
       <div className="hidden md:flex md:flex-col md:fixed md:inset-y-0 md:left-0 md:w-64 md:bg-white md:border-r">
         <div className="flex flex-col flex-1 h-full py-6">
@@ -111,8 +112,10 @@ export function Navigation() {
                     : "text-muted-foreground hover:bg-muted hover:text-primary"
                 }`}
               >
-                {route.icon}
-                <span className="ml-3">{route.label}</span>
+                <>
+                  {route.icon}
+                  <span className="ml-3">{route.label}</span>
+                </>
               </Link>
             ))}
             <div className="pt-4 mt-4 border-t">
@@ -139,7 +142,7 @@ export function Navigation() {
               </Button>
             )}
             {!user && (
-              <Link href="/signin" passHref legacyBehavior>
+              <Link href="/login" passHref>
                 <Button variant="default" className="w-full">
                   Sign In
                 </Button>
@@ -149,5 +152,5 @@ export function Navigation() {
         </div>
       </div>
     </>
-  )
+  );
 }

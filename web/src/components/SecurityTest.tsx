@@ -95,12 +95,10 @@ export default function SecurityTest() {
   return (
     <div className="p-6 max-w-4xl mx-auto bg-white rounded-xl shadow-md">
       <h2 className="text-2xl font-bold mb-4">Supabase Security Policy Test</h2>
-      
       <div className="mb-4 p-4 bg-green-100 text-green-700 rounded-md">
         <p className="font-medium">Authenticated as: {user.email}</p>
         <p className="text-sm mt-1">You can now run security tests to verify that Row-Level Security (RLS) policies are working correctly.</p>
       </div>
-      
       <button
         onClick={runSecurityTests}
         disabled={loading}
@@ -110,14 +108,12 @@ export default function SecurityTest() {
       >
         {loading ? 'Running Tests...' : 'Run Security Tests'}
       </button>
-      
       {error && (
         <div className="mb-4 p-4 bg-red-100 text-red-700 rounded-md">
           <p className="font-bold">Error:</p>
           <p>{error}</p>
         </div>
       )}
-      
       {results && (
         <div className={`p-4 rounded-md ${
           results.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
