@@ -1,6 +1,6 @@
 "use client"
 
-import { useAuth } from "@/contexts/AuthContext"
+import { useAuth } from "@/components/auth-provider"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Home, Clock, Star, Menu } from "lucide-react"

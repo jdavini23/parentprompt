@@ -3,268 +3,290 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { useAuth } from "@/contexts/AuthContext"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
-import { useRouter } from "next/navigation"
-import { supabase } from "@/lib/supabase"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-
-const interests = [
-  { id: "reading", label: "Reading" },
-  { id: "music", label: "Music" },
-  { id: "outdoors", label: "Outdoors" },
-  { id: "sports", label: "Sports" },
-  { id: "art", label: "Art & Crafts" },
-  { id: "science", label: "Science" },
-  { id: "cooking", label: "Cooking" },
-]
-
-const timeOptions = [
-  { value: "morning", label: "Morning (8:00 AM)" },
-  { value: "afternoon", label: "Afternoon (2:00 PM)" },
-  { value: "evening", label: "Evening (7:00 PM)" },
-]
+import { useForm, FormProvider } from 'react-hook-form';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/components/auth-provider';
+import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
+import type { OnboardingFormData } from '@/types/onboarding';
+import Step1 from '@/components/onboarding/Step1';
+import Step2 from '@/components/onboarding/Step2';
+import Step3 from '@/components/onboarding/Step3';
+import ProgressIndicator from '@/components/onboarding/ProgressIndicator';
 
 export default function OnboardingPage() {
-  const { user, loading } = useAuth()
-  const router = useRouter()
-  const [step, setStep] = useState(1)
-  const [formData, setFormData] = useState({
-    name: "",
-    childName: "",
-    childAge: "",
-    interests: [] as string[],
-    preferredTime: "morning",
-  })
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { user, loading } = useAuth();
+  const router = useRouter();
+  const [step, setStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleInterestChange = (id: string, checked: boolean) => {
-    if (checked) {
-      setFormData({
-        ...formData,
-        interests: [...formData.interests, id],
-      })
-    } else {
-      setFormData({
-        ...formData,
-        interests: formData.interests.filter((interest) => interest !== id),
-      })
+  const methods = useForm<OnboardingFormData>({
+    defaultValues: {
+      firstName: '',
+      lastName: '',
+      phoneNumber: '',
+      childName: '',
+      childBirthdate: '',
+      interests: [],
+      notificationTime: '09:00',
+      notificationMethod: 'email',
+    },
+  });
+
+  const { handleSubmit, trigger, reset } = methods;
+
+  const nextStep = async () => {
+    let isValid = false;
+    
+    // Validate current step fields
+    if (step === 1) {
+      isValid = await trigger(['firstName', 'lastName']);
+    } else if (step === 2) {
+      isValid = await trigger(['childName', 'childBirthdate']);
+    } else if (step === 3) {
+      isValid = await trigger(['interests']);
     }
-  }
 
-  // Redirect to login if not authenticated after loading completes
-  useEffect(() => {
-    if (!loading && !user) {
-      console.log("User not authenticated, redirecting to login")
-      router.push("/login?redirect=/onboarding")
+    if (isValid) {
+      setStep(step + 1);
     }
-  }, [user, loading, router])
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      // Double-check authentication before proceeding
-      if (!user) {
-        console.error("User not authenticated during form submission")
-        setError("You must be logged in to complete onboarding")
-        router.push("/login?redirect=/onboarding")
-        return
-      }
-
-      // Save profile data to Supabase
-      const { error } = await supabase.from("profiles").insert({
-        id: user.id,
-        name: formData.name,
-        child_name: formData.childName,
-        child_age: Number.parseInt(formData.childAge),
-        interests: formData.interests,
-        preferred_time: formData.preferredTime,
-      })
-
-      if (error) throw error
-
-      // Redirect to home page
-      router.push("/")
-    } catch (err) {
-      console.error(err)
-      setError("Error saving profile data")
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const nextStep = () => {
-    setStep(step + 1)
-  }
+  };
 
   const prevStep = () => {
-    setStep(step - 1)
-  }
+    setStep(step - 1);
+  };
 
-  // Show loading state while checking authentication
-  if (loading) {
-    return (
-      <div className="container flex items-center justify-center min-h-screen py-12">
-        <Card className="w-full max-w-md text-center p-8">
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Loading...</h2>
-            <p>Please wait while we prepare your onboarding experience.</p>
-          </div>
-        </Card>
-      </div>
-    )
-  }
+  const onSubmit = async (data: OnboardingFormData) => {
+    if (!user) {
+      setError('User not authenticated');
+      return;
+    }
 
-  // If not loading and no user, the useEffect will handle redirect
-  // This is just a fallback in case the redirect hasn't happened yet
-  if (!user) {
+    console.log('Submitting form data:', data);
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      // Get the admin client to bypass RLS if needed
+      const { getSupabaseAdmin } = await import('@/lib/supabase');
+      const adminClient = getSupabaseAdmin();
+
+      // Prepare user data with only the fields that exist in the database
+      const userData: Record<string, any> = {
+        id: user.id,
+        email: user.email,
+        first_name: data.firstName.trim(),
+        last_name: data.lastName.trim(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      
+      // Only add phone_number if it exists in the database schema
+      // and if it's provided in the form data
+      if (data.phoneNumber?.trim()) {
+        userData.phone_number = data.phoneNumber.trim();
+      }
+      
+      console.log('Upserting user data:', userData);
+      
+      // Try with admin client first, fall back to regular client
+      let userUpsert = await adminClient
+        .from('users')
+        .upsert(userData)
+        .select()
+        .single();
+
+      // If admin client fails, try with regular client
+      if (userUpsert.error) {
+        console.log('Admin client failed, trying regular client...');
+        userUpsert = await supabase
+          .from('users')
+          .upsert(userData)
+          .select()
+          .single();
+      }
+
+      if (userUpsert.error) {
+        console.error('User upsert error details:', {
+          code: userUpsert.error.code,
+          message: userUpsert.error.message,
+          details: userUpsert.error.details,
+          hint: userUpsert.error.hint,
+        });
+        throw new Error(`Failed to save user data: ${userUpsert.error.message || 'Unknown error'}`);
+      }
+
+      console.log('User data saved:', userUpsert.data);
+
+      // Prepare child data
+      const childData = {
+        user_id: user.id,
+        name: data.childName.trim(),
+        birthdate: data.childBirthdate,
+        interests: data.interests || [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      
+      console.log('Inserting child data:', childData);
+
+      // Try with admin client first, fall back to regular client
+      let childInsert = await adminClient
+        .from('children')
+        .insert(childData)
+        .select()
+        .single();
+
+      // If admin client fails, try with regular client
+      if (childInsert.error) {
+        console.log('Admin client failed, trying regular client...');
+        childInsert = await supabase
+          .from('children')
+          .insert(childData)
+          .select()
+          .single();
+      }
+
+      if (childInsert.error) {
+        console.error('Child insert error details:', {
+          code: childInsert.error.code,
+          message: childInsert.error.message,
+          details: childInsert.error.details,
+          hint: childInsert.error.hint,
+        });
+        throw new Error(`Failed to save child data: ${childInsert.error.message || 'Unknown error'}`);
+      }
+
+      console.log('Child data saved:', childInsert.data);
+
+      // Redirect to dashboard on success
+      router.push('/dashboard');
+    } catch (err) {
+      console.error('Error in onSubmit:', err);
+      setError(
+        err instanceof Error 
+          ? err.message 
+          : 'An error occurred while saving your profile. Please try again.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/signin');
+    }
+  }, [user, loading, router]);
+
+  if (loading || !user) {
     return (
-      <div className="container flex items-center justify-center min-h-screen py-12">
-        <Card className="w-full max-w-md text-center p-8">
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Authentication Required</h2>
-            <p>You need to be logged in to complete the onboarding process.</p>
-            <Button onClick={() => router.push("/login?redirect=/onboarding")}>Go to Login</Button>
-          </div>
-        </Card>
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
-    )
+    );
   }
 
   return (
-    <div className="container flex items-center justify-center min-h-screen py-12">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Welcome to ParentPrompt</CardTitle>
-          <CardDescription className="text-center">
-            Let&apos;s set up your profile to personalize your experience
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {step === 1 && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Your Name</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    required
-                  />
-                </div>
-                <Button type="button" onClick={nextStep} className="w-full">
-                  Next
-                </Button>
-              </div>
-            )}
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-lg shadow-md">
+        <div>
+          <h1 className="text-2xl font-bold text-center text-gray-900">
+            {step < 4 ? 'Complete Your Profile' : 'Review Your Information'}
+          </h1>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            {step < 4 
+              ? `Step ${step} of 3` 
+              : 'Please review your information before submitting'}
+          </p>
+        </div>
 
-            {step === 2 && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="childName">Child&apos;s Name</Label>
-                  <Input
-                    id="childName"
-                    value={formData.childName}
-                    onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="childAge">Child&apos;s Age (in years)</Label>
-                  <Input
-                    id="childAge"
-                    type="number"
-                    min="0"
-                    max="18"
-                    value={formData.childAge}
-                    onChange={(e) => setFormData({ ...formData, childAge: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="flex justify-between">
-                  <Button type="button" onClick={prevStep} variant="outline">
-                    Back
-                  </Button>
-                  <Button type="button" onClick={nextStep}>
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
+        <ProgressIndicator currentStep={step} totalSteps={4} />
 
-            {step === 3 && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Interests (Select all that apply)</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {interests.map((interest) => (
-                      <div key={interest.id} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={interest.id}
-                          checked={formData.interests.includes(interest.id)}
-                          onCheckedChange={(checked) => handleInterestChange(interest.id, checked as boolean)}
-                        />
-                        <Label htmlFor={interest.id} className="text-sm">
-                          {interest.label}
-                        </Label>
+        <FormProvider {...methods}>
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            {step === 1 && <Step1 nextStep={nextStep} />}
+            {step === 2 && <Step2 nextStep={nextStep} prevStep={prevStep} />}
+            {step === 3 && <Step3 prevStep={prevStep} onSubmit={handleSubmit(onSubmit)} />}
+            
+            {step === 4 && (
+              <div className="space-y-6">
+                <div className="space-y-4">
+                  <h3 className="text-lg font-medium">Review Your Information</h3>
+                  
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Your Information</h4>
+                    <div className="grid gap-2 text-sm">
+                      <div className="grid grid-cols-2">
+                        <span className="text-muted-foreground">Name:</span>
+                        <span>{methods.watch('firstName')} {methods.watch('lastName')}</span>
                       </div>
-                    ))}
+                      {methods.watch('phoneNumber') && (
+                        <div className="grid grid-cols-2">
+                          <span className="text-muted-foreground">Phone:</span>
+                          <span>{methods.watch('phoneNumber')}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Child's Information</h4>
+                    <div className="grid gap-2 text-sm">
+                      <div className="grid grid-cols-2">
+                        <span className="text-muted-foreground">Name:</span>
+                        <span>{methods.watch('childName')}</span>
+                      </div>
+                      <div className="grid grid-cols-2">
+                        <span className="text-muted-foreground">Birthdate:</span>
+                        <span>{new Date(methods.watch('childBirthdate')).toLocaleDateString()}</span>
+                      </div>
+                      {methods.watch('interests')?.length > 0 && (
+                        <div className="grid grid-cols-2">
+                          <span className="text-muted-foreground">Interests:</span>
+                          <span>
+                            {methods.watch('interests').join(', ')}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
+                
+                {error && (
+                  <p className="text-sm font-medium text-red-500">{error}</p>
+                )}
+                
                 <div className="flex justify-between">
-                  <Button type="button" onClick={prevStep} variant="outline">
-                    Back
-                  </Button>
-                  <Button type="button" onClick={nextStep}>
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {step === 4 && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="preferredTime">Preferred Time to Receive Prompts</Label>
-                  <Select
-                    value={formData.preferredTime}
-                    onValueChange={(value) => setFormData({ ...formData, preferredTime: value })}
+                  <Button 
+                    type="button" 
+                    onClick={prevStep} 
+                    variant="outline"
+                    disabled={isSubmitting}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a time" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {timeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {error && <p className="text-sm font-medium text-red-500">{error}</p>}
-                <div className="flex justify-between">
-                  <Button type="button" onClick={prevStep} variant="outline">
                     Back
                   </Button>
-                  <Button type="submit" disabled={isLoading}>
-                    {isLoading ? "Saving..." : "Complete Setup"}
+                  <Button 
+                    type="submit" 
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      'Complete Setup'
+                    )}
                   </Button>
                 </div>
               </div>
             )}
           </form>
-        </CardContent>
-      </Card>
+        </FormProvider>
+      </div>
     </div>
-  )
+  );
 }

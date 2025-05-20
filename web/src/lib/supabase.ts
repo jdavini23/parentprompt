@@ -116,7 +116,7 @@ export type Database = {
           email: string
           first_name: string
           last_name: string
-          phone_number: string
+          phone_number?: string  // Made optional to match actual schema
           created_at: string
           updated_at: string
         }

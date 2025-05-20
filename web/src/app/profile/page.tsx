@@ -3,7 +3,7 @@
 import type React from 'react';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/components/auth-provider';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -84,11 +84,15 @@ async function testDatabaseConnection() {
 export default function ProfilePage() {
   // Helper function to use default profile when no data is available
   const useDefaultProfile = () => {
+    // Get first and last name from user_metadata
+    const firstName = user?.user_metadata?.first_name || '';
+    const lastName = user?.user_metadata?.last_name || '';
+    
     // If no localStorage data, use basic user info from auth context
     const defaultProfile = {
       id: user?.id || 'unknown',
-      first_name: user?.firstName?.split(' ')[0] || '',
-      last_name: user?.firstName?.split(' ').slice(1).join(' ') || '',
+      first_name: firstName,
+      last_name: lastName,
       child_name: '',
       child_age: 0,
       interests: [],
@@ -97,7 +101,7 @@ export default function ProfilePage() {
 
     setProfile(defaultProfile);
     setFormData({
-      name: user?.firstName || '',
+      name: `${firstName} ${lastName}`.trim(),
       childName: '',
       childAge: '',
       interests: [],
