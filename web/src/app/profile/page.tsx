@@ -149,10 +149,15 @@ export default function ProfilePage() {
         return;
       }
       
+      console.log('Fetching profile data for user:', user.id);
       setLoading(true);
+      
       try {
+        // Get the appropriate client (use admin client if available)
+        const client = getSupabaseClient(true) || supabase;
+        
         // Fetch user data from users table
-        const { data: userData, error: userError } = await supabase
+        const { data: userData, error: userError } = await client
           .from('users')
           .select('*')
           .eq('id', user.id)
@@ -165,23 +170,32 @@ export default function ProfilePage() {
 
         // Initialize form data with user data if available
         if (userData) {
+          console.log('User data loaded:', userData);
           // Combine first_name and last_name for the name field
           const fullName = [userData.first_name, userData.last_name].filter(Boolean).join(' ');
+          
+          // Update both profile and form data in a single state update
           setProfile(userData);
           setFormData(prev => ({
             ...prev,
             name: fullName,
+            // Keep existing child data if it exists
+            childName: prev.childName || '',
+            childAge: prev.childAge || '',
+            interests: prev.interests || [],
+            preferredTime: prev.preferredTime || 'morning'
           }));
         }
 
         // Fetch child data from children table
-        const { data: childData, error: childError } = await supabase
+        const { data: childData, error: childError } = await client
           .from('children')
           .select('*')
-          .eq('user_id', user?.id || 'guest-user')
+          .eq('user_id', user.id)
           .maybeSingle();
 
         if (childData) {
+          console.log('Child data loaded:', childData);
           setFormData(prev => ({
             ...prev,
             childName: childData.name || '',
@@ -195,6 +209,7 @@ export default function ProfilePage() {
           if (localProfile) {
             try {
               const parsedProfile = JSON.parse(localProfile);
+              console.log('Using local profile data:', parsedProfile);
               setFormData(prev => ({
                 ...prev,
                 childName: parsedProfile.child_name || '',
@@ -305,25 +320,42 @@ export default function ProfilePage() {
         // Try to update user data
         try {
           console.log('Updating user data in users table...');
-          const { error: userUpdateError } = await adminClient
+          const { data: updateData, error: userUpdateError } = await adminClient
             .from('users')
             .upsert(
               {
                 id: user.id,
+                email: user.email || '',  // Include email field which is required
                 first_name: firstName || '',
                 last_name: lastName || '',
                 updated_at: new Date().toISOString(),
               },
-              { onConflict: 'id' }
-            );
+              { 
+                onConflict: 'id',
+                ignoreDuplicates: false
+              }
+            )
+            .select();
 
           if (userUpdateError) {
-            console.error('Error updating user data:', userUpdateError);
+            const errorInfo = {
+              message: userUpdateError.message,
+              code: (userUpdateError as any).code,
+              details: (userUpdateError as any).details,
+              hint: (userUpdateError as any).hint
+            };
+            console.error('Error updating user data:', errorInfo);
+            throw new Error(`Failed to update user data: ${userUpdateError.message}`);
           } else {
-            console.log('Successfully updated user data');
+            console.log('Successfully updated user data', updateData);
           }
-        } catch (userError) {
-          console.error('Exception updating user:', userError);
+        } catch (error) {
+          const userError = error as Error;
+          console.error('Exception updating user:', {
+            message: userError.message,
+            stack: userError.stack,
+            name: userError.name
+          });
           // Continue with child updates even if user update fails
         }
 
@@ -412,14 +444,30 @@ export default function ProfilePage() {
           }
         }
         
-        // Show success message for database update attempt
+        // Create a new form data object with the updated values
+        const updatedFormData = {
+          ...formData,
+          name: [firstName, lastName].filter(Boolean).join(' '),
+          // Keep existing child data if not changed
+          childName: formData.childName,
+          childAge: formData.childAge,
+          interests: formData.interests,
+          preferredTime: formData.preferredTime
+        };
+        
+        // Update the form data immediately with the new values
+        setFormData(updatedFormData);
+        
+        // Show success message
         toast({
           title: 'Profile updated',
           description: 'Your profile has been updated successfully.',
         });
         
-        // Refresh the profile data
-        await fetchProfile();
+        // Refresh the profile data in the background
+        fetchProfile().catch(error => {
+          console.error('Error refreshing profile after update:', error);
+        });
       } catch (dbError) {
         console.error('Database operation error:', dbError);
         // Show message that we saved locally but had database issues

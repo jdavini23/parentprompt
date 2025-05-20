@@ -1,8 +1,8 @@
-"use client"
+'use client';
 
-import type React from "react"
+import type React from 'react';
 
-import { useState, useEffect } from "react"
+import { useState, useEffect } from 'react';
 import { useForm, FormProvider } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -21,6 +21,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSignupSuccess, setShowSignupSuccess] = useState(false);
 
   const methods = useForm<OnboardingFormData>({
     defaultValues: {
@@ -39,7 +40,7 @@ export default function OnboardingPage() {
 
   const nextStep = async () => {
     let isValid = false;
-    
+
     // Validate current step fields
     if (step === 1) {
       isValid = await trigger(['firstName', 'lastName']);
@@ -82,30 +83,22 @@ export default function OnboardingPage() {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      
+
       // Only add phone_number if it exists in the database schema
       // and if it's provided in the form data
       if (data.phoneNumber?.trim()) {
         userData.phone_number = data.phoneNumber.trim();
       }
-      
+
       console.log('Upserting user data:', userData);
-      
+
       // Try with admin client first, fall back to regular client
-      let userUpsert = await adminClient
-        .from('users')
-        .upsert(userData)
-        .select()
-        .single();
+      let userUpsert = await adminClient.from('users').upsert(userData).select().single();
 
       // If admin client fails, try with regular client
       if (userUpsert.error) {
         console.log('Admin client failed, trying regular client...');
-        userUpsert = await supabase
-          .from('users')
-          .upsert(userData)
-          .select()
-          .single();
+        userUpsert = await supabase.from('users').upsert(userData).select().single();
       }
 
       if (userUpsert.error) {
@@ -129,25 +122,11 @@ export default function OnboardingPage() {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      
+
       console.log('Inserting child data:', childData);
 
-      // Try with admin client first, fall back to regular client
-      let childInsert = await adminClient
-        .from('children')
-        .insert(childData)
-        .select()
-        .single();
-
-      // If admin client fails, try with regular client
-      if (childInsert.error) {
-        console.log('Admin client failed, trying regular client...');
-        childInsert = await supabase
-          .from('children')
-          .insert(childData)
-          .select()
-          .single();
-      }
+      // Use the regular client for inserting children (RLS requires user session)
+      let childInsert = await supabase.from('children').insert(childData).select().single();
 
       if (childInsert.error) {
         console.error('Child insert error details:', {
@@ -156,7 +135,9 @@ export default function OnboardingPage() {
           details: childInsert.error.details,
           hint: childInsert.error.hint,
         });
-        throw new Error(`Failed to save child data: ${childInsert.error.message || 'Unknown error'}`);
+        throw new Error(
+          `Failed to save child data: ${childInsert.error.message || 'Unknown error'}`
+        );
       }
 
       console.log('Child data saved:', childInsert.data);
@@ -166,8 +147,8 @@ export default function OnboardingPage() {
     } catch (err) {
       console.error('Error in onSubmit:', err);
       setError(
-        err instanceof Error 
-          ? err.message 
+        err instanceof Error
+          ? err.message
           : 'An error occurred while saving your profile. Please try again.'
       );
     } finally {
@@ -177,9 +158,16 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/signin');
+      router.push('/login');
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && sessionStorage.getItem('justSignedUp') === 'true') {
+      setShowSignupSuccess(true);
+      sessionStorage.removeItem('justSignedUp');
+    }
+  }, []);
 
   if (loading || !user) {
     return (
@@ -192,14 +180,17 @@ export default function OnboardingPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-lg shadow-md">
+        {showSignupSuccess && (
+          <div className="mb-4 p-3 rounded bg-green-100 text-green-800 text-center font-medium">
+            Account created! Welcome! Please complete your profile to get started.
+          </div>
+        )}
         <div>
           <h1 className="text-2xl font-bold text-center text-gray-900">
             {step < 4 ? 'Complete Your Profile' : 'Review Your Information'}
           </h1>
           <p className="mt-2 text-center text-sm text-gray-600">
-            {step < 4 
-              ? `Step ${step} of 3` 
-              : 'Please review your information before submitting'}
+            {step < 4 ? `Step ${step} of 3` : 'Please review your information before submitting'}
           </p>
         </div>
 
@@ -210,18 +201,20 @@ export default function OnboardingPage() {
             {step === 1 && <Step1 nextStep={nextStep} />}
             {step === 2 && <Step2 nextStep={nextStep} prevStep={prevStep} />}
             {step === 3 && <Step3 prevStep={prevStep} onSubmit={handleSubmit(onSubmit)} />}
-            
+
             {step === 4 && (
               <div className="space-y-6">
                 <div className="space-y-4">
                   <h3 className="text-lg font-medium">Review Your Information</h3>
-                  
+
                   <div className="space-y-2">
                     <h4 className="font-medium">Your Information</h4>
                     <div className="grid gap-2 text-sm">
                       <div className="grid grid-cols-2">
                         <span className="text-muted-foreground">Name:</span>
-                        <span>{methods.watch('firstName')} {methods.watch('lastName')}</span>
+                        <span>
+                          {methods.watch('firstName')} {methods.watch('lastName')}
+                        </span>
                       </div>
                       {methods.watch('phoneNumber') && (
                         <div className="grid grid-cols-2">
@@ -241,37 +234,53 @@ export default function OnboardingPage() {
                       </div>
                       <div className="grid grid-cols-2">
                         <span className="text-muted-foreground">Birthdate:</span>
-                        <span>{new Date(methods.watch('childBirthdate')).toLocaleDateString()}</span>
+                        <span>
+                          {new Date(methods.watch('childBirthdate')).toLocaleDateString()}
+                        </span>
                       </div>
                       {methods.watch('interests')?.length > 0 && (
                         <div className="grid grid-cols-2">
                           <span className="text-muted-foreground">Interests:</span>
-                          <span>
-                            {methods.watch('interests').join(', ')}
-                          </span>
+                          <span>{methods.watch('interests').join(', ')}</span>
                         </div>
                       )}
                     </div>
                   </div>
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Notification Preferences</h4>
+                    <div className="grid gap-2 text-sm">
+                      <div className="grid grid-cols-2">
+                        <span className="text-muted-foreground">Preferred Time:</span>
+                        <span>{methods.watch('notificationTime')}</span>
+                      </div>
+                      <div className="grid grid-cols-2">
+                        <span className="text-muted-foreground">Method:</span>
+                        <span>
+                          {methods.watch('notificationMethod') === 'email'
+                            ? 'Email'
+                            : methods.watch('notificationMethod') === 'push'
+                              ? 'Push Notification'
+                              : methods.watch('notificationMethod') === 'text'
+                                ? 'Text Message'
+                                : ''}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                
-                {error && (
-                  <p className="text-sm font-medium text-red-500">{error}</p>
-                )}
-                
+
+                {error && <p className="text-sm font-medium text-red-500">{error}</p>}
+
                 <div className="flex justify-between">
-                  <Button 
-                    type="button" 
-                    onClick={prevStep} 
+                  <Button
+                    type="button"
+                    onClick={prevStep}
                     variant="outline"
                     disabled={isSubmitting}
                   >
                     Back
                   </Button>
-                  <Button 
-                    type="submit" 
-                    disabled={isSubmitting}
-                  >
+                  <Button type="submit" disabled={isSubmitting}>
                     {isSubmitting ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

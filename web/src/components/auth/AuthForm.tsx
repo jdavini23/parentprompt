@@ -2,11 +2,11 @@
 
 import { useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { createSupabaseBrowserClient } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 
 interface AuthFormProps {
   type: 'sign-in' | 'sign-up';
-};
+}
 
 export default function AuthForm({ type }: AuthFormProps) {
   const [email, setEmail] = useState('');
@@ -16,7 +16,6 @@ export default function AuthForm({ type }: AuthFormProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const redirectPath = searchParams.get('redirect') || '/dashboard';
-  const supabase = createSupabaseBrowserClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +33,7 @@ export default function AuthForm({ type }: AuthFormProps) {
         });
 
         if (error) throw error;
-        
+
         setMessage({
           text: 'Check your email for the confirmation link!',
           type: 'success',
@@ -47,12 +46,12 @@ export default function AuthForm({ type }: AuthFormProps) {
         });
 
         if (error) throw error;
-        
+
         setMessage({
           text: 'Signed in successfully! Redirecting...',
           type: 'success',
         });
-        
+
         // If sign-in is successful, redirect to the intended page
         if (data.session) {
           // Short delay to allow the message to be seen
@@ -78,7 +77,7 @@ export default function AuthForm({ type }: AuthFormProps) {
         <h2 className="text-2xl font-bold mb-6 text-center">
           {type === 'sign-in' ? 'Sign In' : 'Sign Up'}
         </h2>
-        
+
         <div className="mb-4">
           <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="email">
             Email
@@ -87,13 +86,13 @@ export default function AuthForm({ type }: AuthFormProps) {
             id="email"
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={e => setEmail(e.target.value)}
             className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
             placeholder="Email"
             required
           />
         </div>
-        
+
         <div className="mb-6">
           <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="password">
             Password
@@ -102,22 +101,24 @@ export default function AuthForm({ type }: AuthFormProps) {
             id="password"
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={e => setPassword(e.target.value)}
             className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
             placeholder="Password"
             required
             minLength={6}
           />
         </div>
-        
+
         {message && (
-          <div className={`mb-4 p-3 rounded ${
-            message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-          }`}>
+          <div
+            className={`mb-4 p-3 rounded ${
+              message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+            }`}
+          >
             {message.text}
           </div>
         )}
-        
+
         <div className="flex items-center justify-between">
           <button
             type="submit"
@@ -128,7 +129,7 @@ export default function AuthForm({ type }: AuthFormProps) {
           >
             {loading ? 'Loading...' : type === 'sign-in' ? 'Sign In' : 'Sign Up'}
           </button>
-          
+
           <a
             href={type === 'sign-in' ? '/auth/sign-up' : '/auth/sign-in'}
             className="inline-block align-baseline font-bold text-sm text-blue-500 hover:text-blue-800"
