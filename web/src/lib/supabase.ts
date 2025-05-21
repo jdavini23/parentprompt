@@ -155,3 +155,5 @@ export type Database = {
     };
   };
 };
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);

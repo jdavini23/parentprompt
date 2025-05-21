@@ -38,6 +38,33 @@ export default function OnboardingPage() {
 
   const { handleSubmit, trigger, reset } = methods;
 
+  // Restore form state from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('onboardingFormData');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          methods.reset({ ...methods.getValues(), ...parsed });
+        } catch (e) {
+          // Ignore parse errors
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save form state to localStorage on change
+  useEffect(() => {
+    const subscription = methods.watch(value => {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('onboardingFormData', JSON.stringify(value));
+      }
+    });
+    return () => subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [methods.watch]);
+
   const nextStep = async () => {
     let isValid = false;
 
@@ -70,10 +97,7 @@ export default function OnboardingPage() {
     setError(null);
 
     try {
-      // Get the admin client to bypass RLS if needed
-      const { getSupabaseAdmin } = await import('@/lib/supabase');
-      const adminClient = getSupabaseAdmin();
-
+      // Remove admin client logic, use supabase directly
       // Prepare user data with only the fields that exist in the database
       const userData: Record<string, any> = {
         id: user.id,
@@ -92,14 +116,8 @@ export default function OnboardingPage() {
 
       console.log('Upserting user data:', userData);
 
-      // Try with admin client first, fall back to regular client
-      let userUpsert = await adminClient.from('users').upsert(userData).select().single();
-
-      // If admin client fails, try with regular client
-      if (userUpsert.error) {
-        console.log('Admin client failed, trying regular client...');
-        userUpsert = await supabase.from('users').upsert(userData).select().single();
-      }
+      // Use supabase client for upsert
+      let userUpsert = await supabase.from('users').upsert(userData).select().single();
 
       if (userUpsert.error) {
         console.error('User upsert error details:', {
@@ -125,24 +143,31 @@ export default function OnboardingPage() {
 
       console.log('Inserting child data:', childData);
 
-      // Use the regular client for inserting children (RLS requires user session)
-      let childInsert = await supabase.from('children').insert(childData).select().single();
+      // Use supabase client for upsert (was: insert) children
+      let childUpsert = await supabase
+        .from('children')
+        .upsert(childData, { onConflict: 'user_id' })
+        .select()
+        .single();
 
-      if (childInsert.error) {
-        console.error('Child insert error details:', {
-          code: childInsert.error.code,
-          message: childInsert.error.message,
-          details: childInsert.error.details,
-          hint: childInsert.error.hint,
+      if (childUpsert.error) {
+        console.error('Child upsert error details:', {
+          code: childUpsert.error.code,
+          message: childUpsert.error.message,
+          details: childUpsert.error.details,
+          hint: childUpsert.error.hint,
         });
         throw new Error(
-          `Failed to save child data: ${childInsert.error.message || 'Unknown error'}`
+          `Failed to save child data: ${childUpsert.error.message || 'Unknown error'}`
         );
       }
 
-      console.log('Child data saved:', childInsert.data);
+      console.log('Child data saved:', childUpsert.data);
 
       // Redirect to dashboard on success
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('onboardingFormData');
+      }
       router.push('/dashboard');
     } catch (err) {
       console.error('Error in onSubmit:', err);
