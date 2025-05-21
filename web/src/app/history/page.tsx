@@ -1,17 +1,20 @@
-"use client"
+'use client';
 
-import { useEffect, useState } from "react"
-import { useAuth } from "@/components/auth-provider"
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Navigation } from "@/components/navigation"
-import { getPromptHistory, markPromptCompleted, markPromptFavorite } from "@/lib/prompt-service"
-import { CheckCircle, Star, StarOff } from "lucide-react"
+import { useEffect, useState } from 'react';
+import { useAuth } from '@/components/auth-provider';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Navigation } from '@/components/navigation';
+import { getPromptHistory, markPromptCompleted, markPromptFavorite } from '@/lib/prompt-service';
+import { CheckCircle, Star, StarOff } from 'lucide-react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import type { Database } from '@/lib/supabase';
 
 export default function HistoryPage() {
-  const { user } = useAuth()
-  const [prompts, setPrompts] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const { user } = useAuth();
+  const supabase = createClientComponentClient<Database>();
+  const [prompts, setPrompts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchPrompts = async () => {
@@ -21,42 +24,42 @@ export default function HistoryPage() {
       }
 
       try {
-        const promptsData = await getPromptHistory(user.id)
-        setPrompts(promptsData)
+        const promptsData = await getPromptHistory(supabase, user.id);
+        setPrompts(promptsData);
       } catch (error) {
-        console.error("Error fetching prompts:", error)
+        console.error('Error fetching prompts:', error);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    fetchPrompts()
-  }, [user])
+    fetchPrompts();
+  }, [user, supabase]);
 
   const handleMarkCompleted = async (promptId: string, completed: boolean) => {
     try {
-      await markPromptCompleted(promptId, completed)
-      setPrompts(prompts.map((p) => (p.id === promptId ? { ...p, completed } : p)))
+      await markPromptCompleted(supabase, promptId, completed);
+      setPrompts(prompts.map(p => (p.id === promptId ? { ...p, completed } : p)));
     } catch (error) {
-      console.error("Error marking prompt as completed:", error)
+      console.error('Error marking prompt as completed:', error);
     }
-  }
+  };
 
   const handleMarkFavorite = async (promptId: string, favorite: boolean) => {
     try {
-      await markPromptFavorite(promptId, favorite)
-      setPrompts(prompts.map((p) => (p.id === promptId ? { ...p, favorite } : p)))
+      await markPromptFavorite(supabase, promptId, favorite);
+      setPrompts(prompts.map(p => (p.id === promptId ? { ...p, favorite } : p)));
     } catch (error) {
-      console.error("Error marking prompt as favorite:", error)
+      console.error('Error marking prompt as favorite:', error);
     }
-  }
+  };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
       </div>
-    )
+    );
   }
 
   return (
@@ -76,15 +79,15 @@ export default function HistoryPage() {
           </Card>
         ) : (
           <div className="space-y-4">
-            {prompts.map((prompt) => (
+            {prompts.map(prompt => (
               <Card key={prompt.id}>
                 <CardHeader>
                   <CardTitle className="text-lg">
-                    {new Date(prompt.date).toLocaleDateString("en-US", {
-                      weekday: "long",
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
+                    {new Date(prompt.date).toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
                     })}
                   </CardTitle>
                 </CardHeader>
@@ -93,12 +96,12 @@ export default function HistoryPage() {
                 </CardContent>
                 <CardFooter className="flex justify-between">
                   <Button
-                    variant={prompt.completed ? "default" : "outline"}
+                    variant={prompt.completed ? 'default' : 'outline'}
                     onClick={() => handleMarkCompleted(prompt.id, !prompt.completed)}
                     className="flex items-center gap-2"
                   >
                     <CheckCircle className="w-5 h-5" />
-                    {prompt.completed ? "Completed" : "Mark Complete"}
+                    {prompt.completed ? 'Completed' : 'Mark Complete'}
                   </Button>
                   <Button
                     variant="outline"
@@ -124,5 +127,5 @@ export default function HistoryPage() {
         )}
       </div>
     </div>
-  )
+  );
 }

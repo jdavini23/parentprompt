@@ -3,81 +3,75 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { Database } from '@/types/supabase';
 
-// List of routes that require authentication
-const protectedRoutes = [
-  '/dashboard',
-  '/profile',
-  '/settings',
-  '/admin',
-  '/security-test',
-];
-
-// List of routes that are public (auth pages)
-const authRoutes = [
-  '/auth/sign-in',
-  '/auth/sign-up',
-];
+// This middleware's primary role is to refresh the session cookie if needed.
+// It does NOT perform route protection itself. Route protection should be handled
+// in Server Components (e.g., layouts or pages) using createServerComponentClient.
 
 export async function middleware(request: NextRequest) {
-  try {
-    // Create a Supabase client configured to use cookies
-    const response = NextResponse.next();
-    const supabase = createMiddlewareClient<Database>({ req: request, res: response });
-    
-    // Refresh session if expired
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    
-    const requestPath = new URL(request.url).pathname;
-    
-    // Check if the route requires authentication
-    const isProtectedRoute = protectedRoutes.some(route => 
-      requestPath === route || requestPath.startsWith(`${route}/`)
-    );
-    
-    // Check if the route is an auth route (sign-in, sign-up)
-    const isAuthRoute = authRoutes.some(route => 
-      requestPath === route || requestPath.startsWith(`${route}/`)
-    );
-    
-    // Redirect unauthenticated users to sign-in page if trying to access protected routes
-    if (isProtectedRoute && !session) {
-      const redirectUrl = new URL('/auth/sign-in', request.url);
-      redirectUrl.searchParams.set('redirect', requestPath);
-      return NextResponse.redirect(redirectUrl);
-    }
-    
-    // Handle redirect after sign-in
-    if (session && requestPath === '/auth/callback') {
-      const redirectTo = request.nextUrl.searchParams.get('redirect');
-      if (redirectTo && redirectTo.startsWith('/')) {
-        return NextResponse.redirect(new URL(redirectTo, request.url));
-      }
-    }
-    
-    // Redirect authenticated users to dashboard if they try to access auth routes
-    if (isAuthRoute && session) {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
-    
-    return response;
-  } catch (error) {
-    // In case of any errors, log them and redirect to sign-in page
-    console.error('Auth middleware error:', error);
-    return NextResponse.redirect(new URL('/auth/sign-in', request.url));
+  const response = NextResponse.next();
+
+  const supabase = createMiddlewareClient<Database>({
+    req: request,
+    res: response,
+  });
+
+  // Refresh session if expired - Supabase Auth Helpers handles this.
+  // The getSession() call is enough to trigger the cookie refresh.
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.getSession();
+
+  if (error) {
+    console.error('Middleware: Error from supabase.auth.getSession():', error);
+  } else if (session) {
+    console.log('Middleware: Session refreshed/validated. User:', session.user?.email);
+  } else {
+    console.log('Middleware: No active session found by getSession().');
   }
+
+  // It's important to return the response object,
+  // as it may have been modified by the Supabase client to set/update the session cookie.
+  return response;
 }
 
-// Specify which routes this middleware should run on
+// Specify which routes this middleware should run on.
+// It should run on all routes that might need session information or refresh.
+// For simplicity, often it's set to run on most app routes.
 export const config = {
   matcher: [
-    // Only apply middleware to dashboard, profile, settings, admin, and security-test routes
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - login
+     * - signup
+     * - auth/callback
+     *
+     * This ensures it runs on protected routes and also on public routes
+     * where a session might exist and need refreshing.
+     * Adjust the matcher as per your application's specific needs.
+     * For now, keeping original matcher to see if this simpler middleware works.
+     */
+    '/dashboard',
     '/dashboard/:path*',
+    '/profile',
     '/profile/:path*',
+    '/settings',
     '/settings/:path*',
+    '/admin',
     '/admin/:path*',
-    '/security-test/:path*',
     '/security-test',
+    '/security-test/:path*',
+    // Auth routes are included here so that if a user with an existing session
+    // (perhaps from a previous tab) navigates to them, the session can be
+    // managed/refreshed by the middleware. The actual redirect for authenticated
+    // users away from auth routes should happen on the client or server component
+    // of those auth pages.
+    '/login',
+    '/signup',
+    '/auth/callback',
   ],
 };

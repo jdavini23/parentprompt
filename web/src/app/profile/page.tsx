@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { supabase, getSupabaseClient } from '@/lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import type { Database } from '@/lib/supabase';
 import {
   Select,
   SelectContent,
@@ -19,7 +20,7 @@ import {
 } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
 
-const interests = [
+const interestsList = [
   { id: 'reading', label: 'Reading' },
   { id: 'music', label: 'Music' },
   { id: 'outdoors', label: 'Outdoors' },
@@ -35,81 +36,26 @@ const timeOptions = [
   { value: 'evening', label: 'Evening (7:00 PM)' },
 ];
 
-// Diagnostic function to test database connectivity
+/*
+// Diagnostic function to test database connectivity - Requires an admin client via a secure Route Handler
 async function testDatabaseConnection() {
-  console.log('Testing database connection...');
-  try {
-    // Get admin client
-    const adminClient = getSupabaseClient(true);
-    console.log('Admin client obtained');
-
-    // Test connection by checking if tables exist
-    console.log('Checking if users table exists...');
-    const { data: usersData, error: usersError } = await adminClient
-      .from('users')
-      .select('count')
-      .limit(1);
-
-    console.log('Users table check result:', { data: usersData, error: usersError });
-
-    console.log('Checking if children table exists...');
-    const { data: childrenData, error: childrenError } = await adminClient
-      .from('children')
-      .select('count')
-      .limit(1);
-
-    console.log('Children table check result:', { data: childrenData, error: childrenError });
-
-    // Check RLS policies
-    console.log('Checking RLS policies...');
-    const { data: policiesData, error: policiesError } = await adminClient
-      .rpc('get_policies')
-      .select('*');
-
-    console.log('RLS policies check result:', { data: policiesData, error: policiesError });
-
-    return {
-      usersTable: !usersError,
-      childrenTable: !childrenError,
-      policies: policiesData,
-    };
-  } catch (error) {
-    console.error('Database connection test failed:', error);
-    return {
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
+  // This function would need to be an API call to a route handler
+  // that uses an admin client (e.g., createClient({ auth: { persistSession: false, autoRefreshToken: false } }, supabaseUrl, supabaseServiceKey))
+  console.log('Testing database connection (client-side stub)...');
+  // Example: const response = await fetch('/api/admin/db-test');
+  // const results = await response.json();
+  // return results;
 }
+*/
 
 export default function ProfilePage() {
-  // Helper function to use default profile when no data is available
-  const useDefaultProfile = () => {
-    // Get first and last name from user_metadata
-    const firstName = user?.user_metadata?.first_name || '';
-    const lastName = user?.user_metadata?.last_name || '';
-    
-    // If no localStorage data, use basic user info from auth context
-    const defaultProfile = {
-      id: user?.id || 'unknown',
-      first_name: firstName,
-      last_name: lastName,
-      child_name: '',
-      child_age: 0,
-      interests: [],
-      preferred_time: 'morning',
-    };
-
-    setProfile(defaultProfile);
-    setFormData({
-      name: `${firstName} ${lastName}`.trim(),
-      childName: '',
-      childAge: '',
-      interests: [],
-      preferredTime: 'morning',
-    });
-  };
   const { user } = useAuth();
-  const [profile, setProfile] = useState<any>(null);
+  const supabase = createClientComponentClient<Database>(); // Correct instantiation
+
+  const [profile, setProfile] = useState<Database['public']['Tables']['users']['Row'] | null>(null);
+  const [childProfile, setChildProfile] = useState<
+    Database['public']['Tables']['children']['Row'] | null
+  >(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [diagnosisRunning, setDiagnosisRunning] = useState(false);
@@ -122,145 +68,134 @@ export default function ProfilePage() {
     preferredTime: 'morning',
   });
 
-  // Helper function to calculate age from birthdate
-  const calculateAge = (birthdate: string): number => {
+  const calculateAge = (birthdate: string | null | undefined): number => {
+    if (!birthdate) return 0;
     const birthDate = new Date(birthdate);
     const today = new Date();
     let age = today.getFullYear() - birthDate.getFullYear();
     const monthDiff = today.getMonth() - birthDate.getMonth();
-    
     if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
       age--;
     }
-    
     return age;
   };
 
-  // Helper function to calculate birthdate from age
   const calculateBirthdate = (age: number): string => {
     const today = new Date();
     const birthYear = today.getFullYear() - age;
-    return new Date(birthYear, today.getMonth(), today.getDate()).toISOString().split('T')[0];
+    // Ensure month and day are valid (e.g. a two digit string)
+    const month = (today.getMonth() + 1).toString().padStart(2, '0');
+    const day = today.getDate().toString().padStart(2, '0');
+    return `${birthYear}-${month}-${day}`;
   };
 
   const fetchProfile = useCallback(async () => {
-      if (!user) {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    console.log('Fetching profile data for user:', user.id);
+    setLoading(true);
+    try {
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (userError && userError.code !== 'PGRST116') {
+        // PGRST116: no rows found
+        console.error('Error fetching user data:', userError);
+        toast({ title: 'Error', description: userError.message, variant: 'destructive' });
         setLoading(false);
         return;
       }
-      
-      console.log('Fetching profile data for user:', user.id);
-      setLoading(true);
-      
-      try {
-        // Get the appropriate client (use admin client if available)
-        const client = getSupabaseClient(true) || supabase;
-        
-        // Fetch user data from users table
-        const { data: userData, error: userError } = await client
-          .from('users')
-          .select('*')
-          .eq('id', user.id)
-          .maybeSingle();
-
-        if (userError) {
-          console.error('Error fetching user data:', userError);
-          throw userError;
-        }
-
-        // Initialize form data with user data if available
-        if (userData) {
-          console.log('User data loaded:', userData);
-          // Combine first_name and last_name for the name field
-          const fullName = [userData.first_name, userData.last_name].filter(Boolean).join(' ');
-          
-          // Update both profile and form data in a single state update
-          setProfile(userData);
-          setFormData(prev => ({
-            ...prev,
-            name: fullName,
-            // Keep existing child data if it exists
-            childName: prev.childName || '',
-            childAge: prev.childAge || '',
-            interests: prev.interests || [],
-            preferredTime: prev.preferredTime || 'morning'
-          }));
-        }
-
-        // Fetch child data from children table
-        const { data: childData, error: childError } = await client
-          .from('children')
-          .select('*')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (childData) {
-          console.log('Child data loaded:', childData);
-          setFormData(prev => ({
-            ...prev,
-            childName: childData.name || '',
-            childAge: childData.birthdate ? calculateAge(childData.birthdate).toString() : '',
-            interests: childData.interests || [],
-          }));
-        } else if (childError) {
-          console.error('Error fetching child data:', childError);
-          // Fallback to localStorage if available
-          const localProfile = localStorage.getItem(`user_profile_${user.id}`);
-          if (localProfile) {
-            try {
-              const parsedProfile = JSON.parse(localProfile);
-              console.log('Using local profile data:', parsedProfile);
-              setFormData(prev => ({
-                ...prev,
-                childName: parsedProfile.child_name || '',
-                childAge: parsedProfile.child_age?.toString() || '',
-                interests: parsedProfile.interests || [],
-                preferredTime: parsedProfile.preferred_time || 'morning',
-              }));
-            } catch (e) {
-              console.error('Error parsing local profile:', e);
-            }
-          }
-        }
-
-        // If no user data was found, use default profile
-        if (!userData) {
-          useDefaultProfile();
-        }
-      } catch (error) {
-        console.error('Error fetching profile:', error);
-      } finally {
-        setLoading(false);
+      if (userData) {
+        console.log('User data loaded:', userData);
+        setProfile(userData);
+        setFormData(prev => ({
+          ...prev,
+          name: `${userData.first_name || ''} ${userData.last_name || ''}`.trim(),
+        }));
       }
-    }, [user]);
+
+      const { data: childData, error: childError } = await supabase
+        .from('children')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (childError && childError.code !== 'PGRST116') {
+        // PGRST116: no rows found
+        console.error('Error fetching child data:', childError);
+        toast({ title: 'Error', description: childError.message, variant: 'destructive' });
+      } else if (childData) {
+        console.log('Child data loaded:', childData);
+        setChildProfile(childData);
+        setFormData(prev => ({
+          ...prev,
+          childName: childData.name || '',
+          childAge: childData.birthdate ? calculateAge(childData.birthdate).toString() : '',
+          interests: childData.interests || [],
+        }));
+      }
+    } catch (error: any) {
+      console.error('Unexpected error fetching profile:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to fetch profile data.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [user, supabase]);
 
   useEffect(() => {
     fetchProfile();
-  }, [user, fetchProfile]);
+  }, [fetchProfile]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
 
   const handleInterestChange = (id: string, checked: boolean) => {
-    if (checked) {
-      setFormData({
-        ...formData,
-        interests: [...formData.interests, id],
-      });
-    } else {
-      setFormData({
-        ...formData,
-        interests: formData.interests.filter(interest => interest !== id),
-      });
-    }
+    setFormData(prev => ({
+      ...prev,
+      interests: checked
+        ? [...prev.interests, id]
+        : prev.interests.filter(interest => interest !== id),
+    }));
+  };
+
+  const handleTimeChange = (value: string) => {
+    setFormData(prev => ({ ...prev, preferredTime: value }));
   };
 
   const runDiagnostics = async () => {
     setDiagnosisRunning(true);
+    setDiagnosisResults(null);
     try {
-      const results = await testDatabaseConnection();
-      setDiagnosisResults(results);
-      console.log('Diagnosis complete:', results);
-    } catch (error) {
+      // const results = await testDatabaseConnection(); // Keep commented out
+      setDiagnosisResults({
+        message:
+          'Client-side diagnostics are limited. Server-side checks needed for full diagnostics.',
+      });
+      console.log('Diagnosis complete (client-side stub)');
+      toast({
+        title: 'Diagnostics',
+        description:
+          'Client-side checks complete. Full DB diagnostics require server-side execution.',
+      });
+    } catch (error: any) {
       console.error('Diagnosis failed:', error);
-      setDiagnosisResults({ error: String(error) });
+      setDiagnosisResults({ error: error.message });
+      toast({
+        title: 'Error',
+        description: `Diagnosis failed: ${error.message}`,
+        variant: 'destructive',
+      });
     } finally {
       setDiagnosisRunning(false);
     }
@@ -268,361 +203,201 @@ export default function ProfilePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      toast({ title: 'Error', description: 'User not authenticated.', variant: 'destructive' });
+      return;
+    }
     setSaving(true);
-    console.log('Starting profile update...');
-
-    // Use a fallback ID if user is not authenticated
-    const userId = user?.id || 'guest-user';
-    console.log('Using user ID:', userId);
-
-    // Prepare profile data for storage
-    const profileData = {
-      id: userId,
-      name: formData.name,
-      child_name: formData.childName,
-      child_age: Number.parseInt(formData.childAge) || 0,
-      interests: formData.interests,
-      preferred_time: formData.preferredTime,
-      updated_at: new Date().toISOString(),
-    };
 
     try {
-      // Always save to localStorage first as a reliable fallback
-      try {
-        localStorage.setItem(`user_profile_${userId}`, JSON.stringify(profileData));
-        console.log('Saved to localStorage successfully');
-      } catch (e) {
-        console.error('Error saving to localStorage:', e);
+      const [firstName, ...lastNameParts] = formData.name.split(' ');
+      const lastName = lastNameParts.join(' ');
+
+      // Ensure user.email is available, otherwise handle error or provide a default
+      if (!user.email) {
+        // This case should ideally not happen for an authenticated user
+        // but it's good to guard against it.
+        console.error('User email is not available. Cannot upsert user profile.');
         toast({
           title: 'Error',
-          description: 'Could not save your profile locally.',
+          description: 'User email is missing. Cannot save profile.',
           variant: 'destructive',
         });
         setSaving(false);
         return;
       }
-      
-      // Attempt to use database if user is authenticated
-      if (user?.id) {
-        try {
-          // Get admin client for database operations
-        console.log('Getting Supabase admin client...');
-        const adminClient = getSupabaseClient(true);
-        
-        if (!adminClient) {
-          throw new Error('Admin client not available');
-        }
 
-        // Split full name into first and last name
-        const [firstName, ...lastNameParts] = formData.name.split(' ');
-        const lastName = lastNameParts.join(' ');
-        
-        // Try to update user data
-        try {
-          console.log('Updating user data in users table...');
-          const { data: updateData, error: userUpdateError } = await adminClient
-            .from('users')
-            .upsert(
-              {
-                id: user.id,
-                email: user.email || '',  // Include email field which is required
-                first_name: firstName || '',
-                last_name: lastName || '',
-                updated_at: new Date().toISOString(),
-              },
-              { 
-                onConflict: 'id',
-                ignoreDuplicates: false
-              }
-            )
-            .select();
+      const userDataToUpsert: Database['public']['Tables']['users']['Insert'] = {
+        id: user.id,
+        email: user.email, // Always include email
+        first_name: firstName || '',
+        last_name: lastName || '',
+      };
 
-          if (userUpdateError) {
-            const errorInfo = {
-              message: userUpdateError.message,
-              code: (userUpdateError as any).code,
-              details: (userUpdateError as any).details,
-              hint: (userUpdateError as any).hint
-            };
-            console.error('Error updating user data:', errorInfo);
-            throw new Error(`Failed to update user data: ${userUpdateError.message}`);
-          } else {
-            console.log('Successfully updated user data', updateData);
-          }
-        } catch (error) {
-          const userError = error as Error;
-          console.error('Exception updating user:', {
-            message: userError.message,
-            stack: userError.stack,
-            name: userError.name
-          });
-          // Continue with child updates even if user update fails
-        }
+      const { error: userUpsertError } = await supabase.from('users').upsert(userDataToUpsert);
 
-        // Try to update child data
-        if (formData.childName) {
-          try {
-            console.log('Updating child data in children table...');
-            
-            // First, make sure the user exists in the users table
-            // This is necessary because children has a foreign key constraint to users
-            try {
-              // Check if user exists in users table
-              const { data: userExists } = await adminClient
-                .from('users')
-                .select('id')
-                .eq('id', user.id)
-                .maybeSingle();
-              
-              // If user doesn't exist, create the user first
-              if (!userExists) {
-                console.log('User does not exist in users table, creating user first...');
-                const [firstName, ...lastNameParts] = formData.name.split(' ');
-                const lastName = lastNameParts.join(' ');
-                
-                await adminClient
-                  .from('users')
-                  .insert({
-                    id: user.id,
-                    email: user.email || '',
-                    first_name: firstName || '',
-                    last_name: lastName || '',
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
-                  });
-                console.log('User created successfully');
-              }
-            } catch (userError) {
-              console.error('Error checking/creating user:', userError);
-              // Continue anyway - we'll catch any errors in the child update
-            }
-            
-            // Now check if child exists
-            const { data: existingChildren } = await adminClient
-              .from('children')
-              .select('id')
-              .eq('user_id', user.id)
-              .maybeSingle();
+      if (userUpsertError) throw userUpsertError;
+      console.log('User profile upserted successfully');
+      toast({ title: 'Success', description: 'User profile updated.' });
 
-            const childData = {
-              user_id: user.id,
-              name: formData.childName,
-              birthdate: formData.childAge ? calculateBirthdate(parseInt(formData.childAge, 10)) : null,
-              interests: formData.interests,
-              updated_at: new Date().toISOString(),
-            };
-
-            let childError = null;
-            
-            if (existingChildren?.id) {
-              // Update existing child
-              console.log('Updating existing child with ID:', existingChildren.id);
-              const { error } = await adminClient
-                .from('children')
-                .update(childData)
-                .eq('id', existingChildren.id);
-              childError = error;
-            } else {
-              // Create new child
-              console.log('Creating new child for user ID:', user.id);
-              const { error } = await adminClient
-                .from('children')
-                .insert(childData);
-              childError = error;
-            }
-
-            if (childError) {
-              console.error('Error updating child data:', childError);
-              // Store in localStorage as fallback
-              localStorage.setItem(`child_data_${user.id}`, JSON.stringify(childData));
-              console.log('Child data saved to localStorage as fallback');
-            } else {
-              console.log('Successfully updated child data');
-            }
-          } catch (childError) {
-            console.error('Exception updating child:', childError);
-          }
-        }
-        
-        // Create a new form data object with the updated values
-        const updatedFormData = {
-          ...formData,
-          name: [firstName, lastName].filter(Boolean).join(' '),
-          // Keep existing child data if not changed
-          childName: formData.childName,
-          childAge: formData.childAge,
+      if (formData.childName) {
+        const childAgeNumber = parseInt(formData.childAge, 10);
+        const childDataToUpsert: Omit<
+          Database['public']['Tables']['children']['Insert'],
+          'id' | 'created_at' | 'updated_at'
+        > & { id?: string } = {
+          user_id: user.id,
+          name: formData.childName,
+          birthdate: childAgeNumber ? calculateBirthdate(childAgeNumber) : undefined,
           interests: formData.interests,
-          preferredTime: formData.preferredTime
         };
-        
-        // Update the form data immediately with the new values
-        setFormData(updatedFormData);
-        
-        // Show success message
-        toast({
-          title: 'Profile updated',
-          description: 'Your profile has been updated successfully.',
-        });
-        
-        // Refresh the profile data in the background
-        fetchProfile().catch(error => {
-          console.error('Error refreshing profile after update:', error);
-        });
-      } catch (dbError) {
-        console.error('Database operation error:', dbError);
-        // Show message that we saved locally but had database issues
-        toast({
-          title: 'Profile saved locally',
-          description: "Your profile has been saved to your device, but couldn't be fully updated in the database.",
-          variant: 'default',
-        });
+
+        if (childProfile && childProfile.id) {
+          // Update existing child
+          const { error: childUpdateError } = await supabase
+            .from('children')
+            .update(childDataToUpsert) // TS might complain if id is here, ensure Update type doesn't expect it if not needed for matching
+            .eq('id', childProfile.id);
+          if (childUpdateError) throw childUpdateError;
+          console.log('Child profile updated successfully');
+          toast({ title: 'Success', description: 'Child profile updated.' });
+        } else {
+          // Insert new child (explicitly remove id for insert)
+          const { id, ...insertData } = childDataToUpsert;
+          const { error: childInsertError } = await supabase
+            .from('children')
+            .insert(insertData as Database['public']['Tables']['children']['Insert']); // Cast to Insert type
+          if (childInsertError) throw childInsertError;
+          console.log('Child profile created successfully');
+          toast({ title: 'Success', description: 'Child profile created.' });
+        }
       }
-    } else {
-      // User not authenticated, show success for local storage only
-      toast({
-        title: 'Profile saved locally',
-        description: 'Your profile has been saved to your device.',
-        variant: 'default',
-      });
+      fetchProfile(); // Refresh data
+    } catch (error: any) {
+      console.error('Error saving profile:', error);
+      toast({ title: 'Error saving profile', description: error.message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
     }
-  } catch (error) {
-    console.error('Error updating profile:', error);
-    toast({
-      title: 'Error',
-      description: error instanceof Error ? error.message : 'An unknown error occurred',
-      variant: 'destructive',
-    });
-  } finally {
-    setSaving(false);
-  }
-};
+  };
 
   if (loading) {
+    return <div className="flex justify-center items-center h-screen">Loading profile...</div>;
+  }
+
+  if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+      <div className="flex justify-center items-center h-screen">
+        Please log in to view your profile.
       </div>
     );
   }
 
   return (
-    <div className="md:pl-64">
-      {/* Navigation component has been removed as it's not defined */}
+    <div className="container mx-auto p-4 md:p-8">
+      <Card className="max-w-2xl mx-auto">
+        <CardHeader>
+          <CardTitle>Your Profile</CardTitle>
+          <CardDescription>Manage your personal and child's information.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <Label htmlFor="name">Your Full Name</Label>
+              <Input
+                id="name"
+                name="name"
+                value={formData.name}
+                onChange={handleInputChange}
+                placeholder="E.g., Jane Doe"
+              />
+            </div>
 
-      <div className="container max-w-4xl py-8 md:py-12">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold">Profile Settings</h1>
-          <p className="text-muted-foreground">Update your profile and preferences</p>
-        </div>
+            <h3 className="text-lg font-semibold pt-4">Child's Information</h3>
+            <div>
+              <Label htmlFor="childName">Child's Name</Label>
+              <Input
+                id="childName"
+                name="childName"
+                value={formData.childName}
+                onChange={handleInputChange}
+                placeholder="E.g., Alex"
+              />
+            </div>
+            <div>
+              <Label htmlFor="childAge">Child's Age</Label>
+              <Input
+                id="childAge"
+                name="childAge"
+                type="number"
+                value={formData.childAge}
+                onChange={handleInputChange}
+                placeholder="E.g., 5"
+              />
+            </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Your Information</CardTitle>
-            <CardDescription>Update your personal information and preferences</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Your Name</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={e => setFormData({ ...formData, name: e.target.value })}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="childName">Child&apos;s Name</Label>
-                  <Input
-                    id="childName"
-                    value={formData.childName}
-                    onChange={e => setFormData({ ...formData, childName: e.target.value })}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="childAge">Child&apos;s Age (in years)</Label>
-                  <Input
-                    id="childAge"
-                    type="number"
-                    min="0"
-                    max="18"
-                    value={formData.childAge}
-                    onChange={e => setFormData({ ...formData, childAge: e.target.value })}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Interests (Select all that apply)</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {interests.map(interest => (
-                      <div key={interest.id} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={interest.id}
-                          checked={formData.interests.includes(interest.id)}
-                          onCheckedChange={checked =>
-                            handleInterestChange(interest.id, checked as boolean)
-                          }
-                        />
-                        <Label htmlFor={interest.id} className="text-sm">
-                          {interest.label}
-                        </Label>
-                      </div>
-                    ))}
+            <div>
+              <Label>Child's Interests</Label>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-2">
+                {interestsList.map(interest => (
+                  <div key={interest.id} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={interest.id}
+                      checked={formData.interests.includes(interest.id)}
+                      onCheckedChange={checked => handleInterestChange(interest.id, !!checked)}
+                    />
+                    <Label htmlFor={interest.id} className="font-normal">
+                      {interest.label}
+                    </Label>
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="preferredTime">Preferred Time to Receive Prompts</Label>
-                  <Select
-                    value={formData.preferredTime}
-                    onValueChange={value => setFormData({ ...formData, preferredTime: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a time" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {timeOptions.map(option => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                ))}
               </div>
+            </div>
 
-              <div className="flex justify-between items-center">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={runDiagnostics}
-                  disabled={diagnosisRunning}
-                  className="text-sm"
-                >
-                  {diagnosisRunning ? 'Running Tests...' : 'Test Database Connection'}
-                </Button>
-                <Button type="submit" disabled={saving}>
-                  {saving ? 'Saving...' : 'Save Changes'}
-                </Button>
-              </div>
+            {/* Preferred time for prompts - Assuming this is for future use and not directly in users/children table */}
+            {/* 
+            <div>
+              <Label htmlFor="preferredTime">Preferred Time for Prompts</Label>
+              <Select onValueChange={handleTimeChange} value={formData.preferredTime}>
+                <SelectTrigger id="preferredTime">
+                  <SelectValue placeholder="Select a time" />
+                </SelectTrigger>
+                <SelectContent>
+                  {timeOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            */}
 
-              {diagnosisResults && (
-                <div className="mt-4 p-4 border rounded-md bg-slate-50">
-                  <h3 className="font-medium mb-2">Database Diagnosis Results:</h3>
-                  <pre className="text-xs overflow-auto p-2 bg-slate-100 rounded">
-                    {JSON.stringify(diagnosisResults, null, 2)}
-                  </pre>
-                </div>
-              )}
-            </form>
-          </CardContent>
-        </Card>
-      </div>
+            <div className="flex flex-col sm:flex-row justify-between items-center pt-6 space-y-4 sm:space-y-0">
+              <Button type="submit" disabled={saving || loading} className="w-full sm:w-auto">
+                {saving ? 'Saving...' : 'Save Profile'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={runDiagnostics}
+                disabled={diagnosisRunning}
+                className="w-full sm:w-auto"
+              >
+                {diagnosisRunning ? 'Running Diagnostics...' : 'Run Diagnostics'}
+              </Button>
+            </div>
+          </form>
+          {diagnosisResults && (
+            <div className="mt-6 p-4 border rounded-md bg-muted">
+              <h4 className="font-semibold">Diagnosis Results:</h4>
+              <pre className="text-sm whitespace-pre-wrap">
+                {JSON.stringify(diagnosisResults, null, 2)}
+              </pre>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
